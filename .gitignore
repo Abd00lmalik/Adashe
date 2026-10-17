@@ -1,0 +1,17 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Foundry build artifacts
+contracts/out/
+contracts/cache/
+
+# Node modules
+node_modules/
+
+# Circle recovery files
+.circle/
+
+# OS
+.DS_Store
