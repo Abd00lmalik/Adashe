@@ -148,9 +148,9 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         cid = circle.createCircle("Test", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid, PIN);
-        vm.prank(alice);   circle.joinCircle(cid, PIN);
-        vm.prank(bob);     circle.joinCircle(cid, PIN);
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
 
         vm.prank(creator); circle.approveMember(cid, creator);
         vm.prank(creator); circle.approveMember(cid, alice);
@@ -198,9 +198,9 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("Test", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid, PIN);
-        vm.prank(alice);   circle.joinCircle(cid, PIN);
-        vm.prank(bob);     circle.joinCircle(cid, PIN);
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
 
         vm.prank(creator); circle.approveMember(cid, creator);
         vm.prank(creator); circle.approveMember(cid, alice);
@@ -275,7 +275,7 @@ contract AdasheCircleTest is Test {
         address outsider = makeAddr("outsider");
         vm.prank(outsider);
         vm.expectRevert(bytes("not in payout order"));
-        circle.joinCircle(cid, PIN);
+        circle.joinCircle(cid);
     }
 
     function test_joinCircle_RevertsIfCircleAlreadyActive() public {
@@ -283,7 +283,7 @@ contract AdasheCircleTest is Test {
         // alice already joined; trying to join again on an active circle fails
         vm.prank(alice);
         vm.expectRevert(bytes("circle not pending"));
-        circle.joinCircle(cid, PIN);
+        circle.joinCircle(cid);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -295,8 +295,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid, PIN);
-        vm.prank(alice);   circle.joinCircle(cid, PIN);
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
 
         vm.prank(alice);
         vm.expectRevert(bytes("only creator"));
@@ -628,10 +628,10 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("X", CONTRIBUTION, 4, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid, PIN);
-        vm.prank(alice);   circle.joinCircle(cid, PIN);
-        vm.prank(bob);     circle.joinCircle(cid, PIN);
-        vm.prank(dan);     circle.joinCircle(cid, PIN);
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(dan);     circle.joinCircle(cid);
 
         vm.prank(creator); circle.approveMember(cid, creator);
         vm.prank(creator); circle.approveMember(cid, alice);
@@ -720,9 +720,9 @@ contract AdasheCircleTest is Test {
         vm.expectRevert(bytes("debt outstanding"));
         circle.claimPayout(cid, 2);
 
-        // repay the debt
+        // repay the debt (bob defaulted in period 1)
         vm.prank(bob);
-        circle.repayDebt(cid);
+        circle.repayDebt(cid, 1);
 
         MemberView memory bobAfter = _getMember(cid, bob);
         assertEq(bobAfter.debtBalance, 0, "debt should be zero after repay");
@@ -827,8 +827,9 @@ contract AdasheCircleTest is Test {
         // amountToDebt = min(debt, claimable) = CONTRIBUTION; remainder claimable = 0
         // bob receives 0 tokens (all withheld payout covers debt exactly)
         uint256 balBefore = usdc.balanceOf(bob);
+        // bob's debt is from period 1 default; withheld payout is period 2
         vm.prank(bob);
-        circle.settleOwnDebtFromWithheldPayout(cid, 2);
+        circle.settleOwnDebtFromWithheldPayout(cid, 2, 1);
         uint256 balAfter = usdc.balanceOf(bob);
 
         MemberView memory bobAfter = _getMember(cid, bob);
@@ -943,8 +944,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid, PIN);
-        vm.prank(alice);   circle.joinCircle(cid, PIN);
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
 
         vm.prank(alice);
         vm.expectRevert(bytes("only creator"));
@@ -956,8 +957,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid, PIN);
-        vm.prank(alice);   circle.joinCircle(cid, PIN);
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
 
         vm.prank(creator); circle.approveMember(cid, creator);
         vm.prank(creator); circle.approveMember(cid, alice);
@@ -987,8 +988,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid, PIN);
-        vm.prank(alice);   circle.joinCircle(cid, PIN);
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
         vm.prank(creator); circle.approveMember(cid, creator);
         vm.prank(creator); circle.approveMember(cid, alice);
 
@@ -1047,9 +1048,9 @@ contract AdasheCircleTest is Test {
         cid = circle.createCircle(
             "M", CONTRIBUTION, 3, AdasheCircle.Frequency.MONTHLY, 0, anchorDay, order, PIN
         );
-        vm.prank(creator); circle.joinCircle(cid, PIN);
-        vm.prank(alice);   circle.joinCircle(cid, PIN);
-        vm.prank(bob);     circle.joinCircle(cid, PIN);
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
         vm.prank(creator); circle.approveMember(cid, creator);
         vm.prank(creator); circle.approveMember(cid, alice);
         vm.prank(creator); circle.approveMember(cid, bob);
@@ -1127,7 +1128,7 @@ contract AdasheCircleTest is Test {
         );
         for (uint8 i = 0; i < memberCount; i++) {
             vm.prank(order[i]);
-            circle.joinCircle(cid, PIN);
+            circle.joinCircle(cid);
         }
         for (uint8 i = 0; i < memberCount; i++) {
             vm.prank(order[0]);
@@ -1169,8 +1170,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T2", CONTRIBUTION, 2, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid, PIN);
-        vm.prank(memberB); circle.joinCircle(cid, PIN);
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(memberB); circle.joinCircle(cid);
         vm.prank(creator); circle.approveMember(cid, creator);
         vm.prank(creator); circle.approveMember(cid, memberB);
 
@@ -1212,9 +1213,9 @@ contract AdasheCircleTest is Test {
             "R", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN
         );
 
-        vm.prank(creator); rCircle.joinCircle(cid, PIN);
-        vm.prank(alice);   rCircle.joinCircle(cid, PIN);
-        vm.prank(bob);     rCircle.joinCircle(cid, PIN);
+        vm.prank(creator); rCircle.joinCircle(cid);
+        vm.prank(alice);   rCircle.joinCircle(cid);
+        vm.prank(bob);     rCircle.joinCircle(cid);
 
         vm.prank(creator); rCircle.approveMember(cid, creator);
         vm.prank(creator); rCircle.approveMember(cid, alice);

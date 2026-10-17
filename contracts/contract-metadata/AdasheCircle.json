@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0xf230a4353bf45b2d43f79d1803868ad8c8e49018",
+  "contractAddress": "0xa61aeab00c4b761f79bb8a22b6e167d28e37cfbd",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/AdasheCircle.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/AdasheCircle.sol/AdasheCircle.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xf230a4353bf45b2d43f79d1803868ad8c8e49018"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xa61aeab00c4b761f79bb8a22b6e167d28e37cfbd"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0xa61aeab00c4b761f79bb8a22b6e167d28e37cfbd",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0xa61aeab00c4b761f79bb8a22b6e167d28e37cfbd",
+      "txHash": "0x546ea5b254c27c2f7a82c7963426a525dc63daead6d5386bcb9b24ad6b504d98",
+      "deployedAt": "2026-10-17T19:16:07.366Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0xf230a4353bf45b2d43f79d1803868ad8c8e49018",
@@ -430,6 +437,35 @@
     },
     {
       "type": "function",
+      "name": "getDebtByPeriod",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "periodIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "member",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "getPayoutOrder",
       "inputs": [
         {
@@ -533,11 +569,6 @@
           "name": "circleId",
           "type": "uint256",
           "internalType": "uint256"
-        },
-        {
-          "name": "pinHash",
-          "type": "bytes32",
-          "internalType": "bytes32"
         }
       ],
       "outputs": [],
@@ -665,6 +696,11 @@
           "name": "circleId",
           "type": "uint256",
           "internalType": "uint256"
+        },
+        {
+          "name": "periodIndex",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "outputs": [],
@@ -699,6 +735,11 @@
         },
         {
           "name": "periodIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "debtPeriodIndex",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -843,6 +884,12 @@
       "inputs": [
         {
           "name": "circleId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "periodIndex",
           "type": "uint256",
           "indexed": true,
           "internalType": "uint256"

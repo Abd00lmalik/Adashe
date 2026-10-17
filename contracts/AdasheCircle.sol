@@ -88,6 +88,7 @@ contract AdasheCircle is ReentrancyGuard {
     mapping(uint256 => Circle) public circles;
     mapping(uint256 => mapping(address => MemberRecord)) public memberRecords;
     mapping(uint256 => mapping(uint256 => Period)) private _periods;
+    mapping(uint256 => mapping(uint256 => mapping(address => uint256))) private _debtByPeriod;
 
     mapping(uint256 => mapping(address => bool)) public isInPayoutOrder;
     mapping(uint256 => mapping(address => uint256)) private _positionPlusOne;
@@ -131,7 +132,7 @@ contract AdasheCircle is ReentrancyGuard {
         address indexed contributor,
         uint256 newDeadline
     );
-    event DebtRepaid(uint256 indexed circleId, address indexed member, uint256 amount);
+    event DebtRepaid(uint256 indexed circleId, uint256 indexed periodIndex, address indexed member, uint256 amount);
     event ReserveRefunded(uint256 indexed circleId, address indexed member, uint256 amount);
     event WithheldPayoutClaimed(
         uint256 indexed circleId,
@@ -195,10 +196,9 @@ contract AdasheCircle is ReentrancyGuard {
         emit CircleCreated(circleId, msg.sender, name);
     }
 
-    function joinCircle(uint256 circleId, bytes32 pinHash) external {
+    function joinCircle(uint256 circleId) external {
         Circle storage c = _requireCircle(circleId);
         require(c.status == CircleStatus.PENDING, "circle not pending");
-        require(pinHash == c.pinHash, "invalid pin");
         require(isInPayoutOrder[circleId][msg.sender], "not in payout order");
 
         MemberRecord storage mr = memberRecords[circleId][msg.sender];
@@ -306,18 +306,34 @@ contract AdasheCircle is ReentrancyGuard {
         emit ContributionPaid(circleId, periodIndex, msg.sender, c.contributionAmount, cr.status);
     }
 
-    function repayDebt(uint256 circleId) external nonReentrant {
+    function repayDebt(uint256 circleId, uint256 periodIndex) external nonReentrant {
         Circle storage c = _requireCircle(circleId);
         require(c.status == CircleStatus.ACTIVE || c.status == CircleStatus.COMPLETED, "invalid circle status");
 
+        uint256 amount = _debtByPeriod[circleId][periodIndex][msg.sender];
+        require(amount > 0, "no debt for period");
+
+        Period storage p = _periods[circleId][periodIndex];
+        require(p.initialized, "period not initialized");
+
+        _debtByPeriod[circleId][periodIndex][msg.sender] = 0;
+
         MemberRecord storage mr = memberRecords[circleId][msg.sender];
-        uint256 debt = mr.debtBalance;
-        require(debt > 0, "no debt");
+        if (mr.debtBalance >= amount) {
+            mr.debtBalance -= amount;
+        } else {
+            mr.debtBalance = 0;
+        }
 
-        mr.debtBalance = 0;
-        usdc.safeTransferFrom(msg.sender, address(this), debt);
+        usdc.safeTransferFrom(msg.sender, address(this), amount);
 
-        emit DebtRepaid(circleId, msg.sender, debt);
+        if (p.payoutReleased) {
+            usdc.safeTransfer(p.recipient, amount);
+        } else {
+            p.claimableAmount += amount;
+        }
+
+        emit DebtRepaid(circleId, periodIndex, msg.sender, amount);
     }
 
     function finalizePeriod(uint256 circleId) external nonReentrant {
@@ -359,6 +375,7 @@ contract AdasheCircle is ReentrancyGuard {
             if (mr.reserveBalance >= c.contributionAmount) {
                 mr.reserveBalance -= c.contributionAmount;
                 mr.debtBalance += c.contributionAmount;
+                // full reserve coverage: recipient fully compensated; no creditor routing needed
 
                 cr.status = ContributionStatus.COVERED_BY_RESERVE;
                 cr.paidAmount = c.contributionAmount;
@@ -372,19 +389,20 @@ contract AdasheCircle is ReentrancyGuard {
                 uint256 covered = mr.reserveBalance;
                 mr.reserveBalance = 0;
 
-                uint256 uncovered = c.contributionAmount - covered;
-                mr.debtBalance += uncovered;
+                mr.debtBalance += c.contributionAmount;
+                _debtByPeriod[circleId][periodIndex][member] += (c.contributionAmount - covered);
 
                 cr.status = ContributionStatus.COVERED_BY_RESERVE;
                 cr.paidAmount = covered;
                 cr.paidAt = block.timestamp;
 
                 totalCollected += covered;
-                debtAdded = uncovered;
+                debtAdded = c.contributionAmount;
 
                 emit ReserveCoverageApplied(circleId, periodIndex, member, covered, debtAdded);
             } else {
                 mr.debtBalance += c.contributionAmount;
+                _debtByPeriod[circleId][periodIndex][member] += c.contributionAmount;
 
                 cr.status = ContributionStatus.DEFAULTED;
                 cr.paidAmount = 0;
@@ -507,6 +525,47 @@ contract AdasheCircle is ReentrancyGuard {
         _positionPlusOne[circleId][replacement] = posPlusOne;
         _positionPlusOne[circleId][outgoing] = 0;
 
+        for (uint256 periodIndex = c.currentPeriod; periodIndex < c.memberCount; periodIndex++) {
+            Period storage period = _periods[circleId][periodIndex];
+            if (period.initialized && !period.payoutReleased && period.claimableAmount == 0) {
+                ContributionRecord storage outgoingCR = period.contributions[outgoing];
+                bool shouldReplaceParticipant = true;
+                if (outgoingCR.status == ContributionStatus.PENDING && outgoingCR.paidAmount == 0) {
+                    uint256 outgoingFinalDeadline = _finalDeadline(
+                        period.deadline,
+                        outgoingCR.extensionApproved,
+                        outgoingCR.extensionDeadline,
+                        c.gracePeriod
+                    );
+
+                    if (block.timestamp <= outgoingFinalDeadline) {
+                        ContributionRecord storage replacementCR = period.contributions[replacement];
+                        replacementCR.status = ContributionStatus.PENDING;
+                        replacementCR.paidAmount = 0;
+                        replacementCR.paidAt = 0;
+                        replacementCR.extensionRequested = false;
+                        replacementCR.extensionApproved = false;
+                        replacementCR.extensionDeadline = 0;
+                    } else {
+                        shouldReplaceParticipant = false;
+                    }
+                }
+
+                if (shouldReplaceParticipant) {
+                    for (uint256 i = 0; i < period.participants.length; i++) {
+                        if (period.participants[i] == outgoing) {
+                            period.participants[i] = replacement;
+                            break;
+                        }
+                    }
+                }
+
+                if (period.recipient == outgoing) {
+                    period.recipient = replacement;
+                }
+            }
+        }
+
         delete pendingReplacement[circleId][outgoing];
 
         emit MemberReplaced(circleId, outgoing, replacement);
@@ -526,7 +585,11 @@ contract AdasheCircle is ReentrancyGuard {
         emit ReserveRefunded(circleId, msg.sender, refund);
     }
 
-    function settleOwnDebtFromWithheldPayout(uint256 circleId, uint256 periodIndex) external nonReentrant {
+    function settleOwnDebtFromWithheldPayout(
+        uint256 circleId,
+        uint256 periodIndex,
+        uint256 debtPeriodIndex
+    ) external nonReentrant {
         Circle storage c = _requireCircle(circleId);
         require(c.status == CircleStatus.COMPLETED, "circle not completed");
 
@@ -539,9 +602,25 @@ contract AdasheCircle is ReentrancyGuard {
         require(mr.debtBalance > 0, "no debt");
         require(p.claimableAmount > 0, "no claimable payout");
 
-        uint256 amountToDebt = mr.debtBalance <= p.claimableAmount ? mr.debtBalance : p.claimableAmount;
-        mr.debtBalance -= amountToDebt;
-        p.claimableAmount -= amountToDebt;
+        uint256 periodDebt = _debtByPeriod[circleId][debtPeriodIndex][msg.sender];
+        require(periodDebt > 0, "no debt for period");
+
+        uint256 amountToSettle = mr.debtBalance <= p.claimableAmount ? mr.debtBalance : p.claimableAmount;
+        if (periodDebt < amountToSettle) {
+            amountToSettle = periodDebt;
+        }
+
+        mr.debtBalance -= amountToSettle;
+        _debtByPeriod[circleId][debtPeriodIndex][msg.sender] = periodDebt - amountToSettle;
+        p.claimableAmount -= amountToSettle;
+
+        Period storage creditorPeriod = _periods[circleId][debtPeriodIndex];
+        require(creditorPeriod.initialized, "debt period not initialized");
+        if (creditorPeriod.payoutReleased) {
+            usdc.safeTransfer(creditorPeriod.recipient, amountToSettle);
+        } else {
+            creditorPeriod.claimableAmount += amountToSettle;
+        }
 
         uint256 payoutAmount = 0;
         if (mr.debtBalance == 0 && p.claimableAmount > 0) {
@@ -644,6 +723,10 @@ contract AdasheCircle is ReentrancyGuard {
         return _periods[circleId][periodIndex].contributions[contributor];
     }
 
+    function getDebtByPeriod(uint256 circleId, uint256 periodIndex, address member) external view returns (uint256) {
+        return _debtByPeriod[circleId][periodIndex][member];
+    }
+
     function _requireCircle(uint256 circleId) internal view returns (Circle storage c) {
         c = circles[circleId];
         require(c.circleId != 0, "circle not found");
@@ -730,20 +813,19 @@ contract AdasheCircle is ReentrancyGuard {
         if (periodIndex == 0) return startTime;
 
         if (frequency == Frequency.WEEKLY) {
-            return _nextWeekday(startTime + uint256(periodIndex) * 7 days, weekday);
+            return _weekdayAnchor(startTime, weekday) + uint256(periodIndex) * 7 days;
         }
 
         return _monthlyDeadline(startTime, anchorDay, periodIndex);
     }
 
-    function _nextWeekday(uint256 fromTimestamp, uint8 targetWeekday) internal pure returns (uint256) {
+    function _weekdayAnchor(uint256 startTime, uint8 targetWeekday) internal pure returns (uint256) {
         require(targetWeekday <= 6, "invalid weekday");
         // slither-disable-next-line divide-before-multiply
-        uint256 dayNumber = fromTimestamp / 1 days;
-        uint256 dayStart = dayNumber * 1 days;
+        uint256 dayNumber = startTime / 1 days;
         uint256 currentWeekday = (dayNumber + 3) % 7;
         uint256 dayDelta = (uint256(targetWeekday) + 7 - currentWeekday) % 7;
-        return dayStart + dayDelta * 1 days;
+        return startTime + dayDelta * 1 days;
     }
 
     function _monthlyDeadline(
