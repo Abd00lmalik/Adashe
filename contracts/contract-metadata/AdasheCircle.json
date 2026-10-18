@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0xa61aeab00c4b761f79bb8a22b6e167d28e37cfbd",
+  "contractAddress": "0x20c9fc1e5062df4702798a57b2535bf429b0c912",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/AdasheCircle.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/AdasheCircle.sol/AdasheCircle.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xa61aeab00c4b761f79bb8a22b6e167d28e37cfbd"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x20c9fc1e5062df4702798a57b2535bf429b0c912"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0x20c9fc1e5062df4702798a57b2535bf429b0c912",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0x20c9fc1e5062df4702798a57b2535bf429b0c912",
+      "txHash": "0x8dd1113249fe079822c2af9df9f85335e185b8f53762c99669a874da774c2c84",
+      "deployedAt": "2026-10-18T18:50:32.160Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0xa61aeab00c4b761f79bb8a22b6e167d28e37cfbd",
@@ -539,6 +546,35 @@
     },
     {
       "type": "function",
+      "name": "getReserveDebtByPeriod",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "periodIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "member",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "isInPayoutOrder",
       "inputs": [
         {
@@ -691,6 +727,24 @@
     {
       "type": "function",
       "name": "repayDebt",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "periodIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "repayReserveDebt",
       "inputs": [
         {
           "name": "circleId",

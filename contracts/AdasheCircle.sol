@@ -89,6 +89,9 @@ contract AdasheCircle is ReentrancyGuard {
     mapping(uint256 => mapping(address => MemberRecord)) public memberRecords;
     mapping(uint256 => mapping(uint256 => Period)) private _periods;
     mapping(uint256 => mapping(uint256 => mapping(address => uint256))) private _debtByPeriod;
+    // Tracks the portion of a member's debt that was covered by reserve in a given period.
+    // This amount is owed back to the period's recipient's reserve balance, not to any direct creditor.
+    mapping(uint256 => mapping(uint256 => mapping(address => uint256))) private _reserveDebtByPeriod;
 
     mapping(uint256 => mapping(address => bool)) public isInPayoutOrder;
     mapping(uint256 => mapping(address => uint256)) private _positionPlusOne;
@@ -336,6 +339,37 @@ contract AdasheCircle is ReentrancyGuard {
         emit DebtRepaid(circleId, periodIndex, msg.sender, amount);
     }
 
+    /// @notice Repay the reserve-covered portion of a missed contribution.
+    /// The repaid funds are credited back to the period recipient's reserveBalance,
+    /// restoring the reserve that was used to cover this member's default.
+    function repayReserveDebt(uint256 circleId, uint256 periodIndex) external nonReentrant {
+        Circle storage c = _requireCircle(circleId);
+        require(c.status == CircleStatus.ACTIVE || c.status == CircleStatus.COMPLETED, "invalid circle status");
+
+        uint256 amount = _reserveDebtByPeriod[circleId][periodIndex][msg.sender];
+        require(amount > 0, "no reserve debt for period");
+
+        Period storage p = _periods[circleId][periodIndex];
+        require(p.initialized, "period not initialized");
+
+        _reserveDebtByPeriod[circleId][periodIndex][msg.sender] = 0;
+
+        MemberRecord storage mr = memberRecords[circleId][msg.sender];
+        if (mr.debtBalance >= amount) {
+            mr.debtBalance -= amount;
+        } else {
+            mr.debtBalance = 0;
+        }
+
+        usdc.safeTransferFrom(msg.sender, address(this), amount);
+
+        // Route repaid funds back to the period recipient's reserve balance,
+        // restoring the reserve that was used to cover this default.
+        memberRecords[circleId][p.recipient].reserveBalance += amount;
+
+        emit DebtRepaid(circleId, periodIndex, msg.sender, amount);
+    }
+
     function finalizePeriod(uint256 circleId) external nonReentrant {
         Circle storage c = _requireCircle(circleId);
         require(c.status == CircleStatus.ACTIVE, "circle not active");
@@ -375,7 +409,8 @@ contract AdasheCircle is ReentrancyGuard {
             if (mr.reserveBalance >= c.contributionAmount) {
                 mr.reserveBalance -= c.contributionAmount;
                 mr.debtBalance += c.contributionAmount;
-                // full reserve coverage: recipient fully compensated; no creditor routing needed
+                // full reserve: recipient compensated from reserve; member owes reserve-debt back to recipient's reserve pool
+                _reserveDebtByPeriod[circleId][periodIndex][member] += c.contributionAmount;
 
                 cr.status = ContributionStatus.COVERED_BY_RESERVE;
                 cr.paidAmount = c.contributionAmount;
@@ -391,6 +426,7 @@ contract AdasheCircle is ReentrancyGuard {
 
                 mr.debtBalance += c.contributionAmount;
                 _debtByPeriod[circleId][periodIndex][member] += (c.contributionAmount - covered);
+                _reserveDebtByPeriod[circleId][periodIndex][member] += covered;
 
                 cr.status = ContributionStatus.COVERED_BY_RESERVE;
                 cr.paidAmount = covered;
@@ -603,39 +639,68 @@ contract AdasheCircle is ReentrancyGuard {
         require(p.claimableAmount > 0, "no claimable payout");
 
         uint256 periodDebt = _debtByPeriod[circleId][debtPeriodIndex][msg.sender];
-        require(periodDebt > 0, "no debt for period");
+        uint256 reservePeriodDebt = _reserveDebtByPeriod[circleId][debtPeriodIndex][msg.sender];
+        uint256 totalPeriodDebt = periodDebt + reservePeriodDebt;
+        require(totalPeriodDebt > 0, "no debt for period");
+
+        Period storage creditorPeriod = _periods[circleId][debtPeriodIndex];
+        require(creditorPeriod.initialized, "debt period not initialized");
 
         uint256 amountToSettle = mr.debtBalance <= p.claimableAmount ? mr.debtBalance : p.claimableAmount;
         if (periodDebt < amountToSettle) {
             amountToSettle = periodDebt;
         }
 
-        mr.debtBalance -= amountToSettle;
-        _debtByPeriod[circleId][debtPeriodIndex][msg.sender] = periodDebt - amountToSettle;
-        p.claimableAmount -= amountToSettle;
+        if (amountToSettle > 0) {
+            mr.debtBalance -= amountToSettle;
+            _debtByPeriod[circleId][debtPeriodIndex][msg.sender] = periodDebt - amountToSettle;
+            p.claimableAmount -= amountToSettle;
 
-        Period storage creditorPeriod = _periods[circleId][debtPeriodIndex];
-        require(creditorPeriod.initialized, "debt period not initialized");
-        if (creditorPeriod.payoutReleased) {
-            usdc.safeTransfer(creditorPeriod.recipient, amountToSettle);
-        } else {
-            creditorPeriod.claimableAmount += amountToSettle;
+            if (creditorPeriod.payoutReleased) {
+                usdc.safeTransfer(creditorPeriod.recipient, amountToSettle);
+            } else {
+                creditorPeriod.claimableAmount += amountToSettle;
+            }
+
+            emit DebtRepaid(circleId, debtPeriodIndex, msg.sender, amountToSettle);
         }
 
-        uint256 payoutAmount = 0;
-        if (mr.debtBalance == 0 && p.claimableAmount > 0) {
-            payoutAmount = p.claimableAmount;
-            p.claimableAmount = 0;
-            usdc.safeTransfer(msg.sender, payoutAmount);
+        periodDebt = _debtByPeriod[circleId][debtPeriodIndex][msg.sender];
+        reservePeriodDebt = _reserveDebtByPeriod[circleId][debtPeriodIndex][msg.sender];
+
+        if (periodDebt == 0 && p.claimableAmount > 0 && mr.debtBalance > 0 && reservePeriodDebt > 0) {
+            uint256 reserveSettleAmount = mr.debtBalance <= p.claimableAmount ? mr.debtBalance : p.claimableAmount;
+            if (reservePeriodDebt < reserveSettleAmount) {
+                reserveSettleAmount = reservePeriodDebt;
+            }
+
+            mr.debtBalance -= reserveSettleAmount;
+            _reserveDebtByPeriod[circleId][debtPeriodIndex][msg.sender] = reservePeriodDebt - reserveSettleAmount;
+            p.claimableAmount -= reserveSettleAmount;
+
+            memberRecords[circleId][creditorPeriod.recipient].reserveBalance += reserveSettleAmount;
+
+            emit DebtRepaid(circleId, debtPeriodIndex, msg.sender, reserveSettleAmount);
         }
 
-        p.payoutReleased = true;
-        p.payoutWithheld = false;
-        p.withheldAmount = 0;
-        p.claimableAmount = 0;
+        // Only finalize the withheld payout when all debt is cleared.
+        // If debt remains, preserve claimableAmount so the member can call again
+        // with a different debtPeriodIndex to continue settling.
+        if (mr.debtBalance == 0) {
+            uint256 payoutAmount = 0;
+            if (p.claimableAmount > 0) {
+                payoutAmount = p.claimableAmount;
+                p.claimableAmount = 0;
+                usdc.safeTransfer(msg.sender, payoutAmount);
+            }
+            p.payoutReleased = true;
+            p.payoutWithheld = false;
+            p.withheldAmount = 0;
 
-        emit WithheldPayoutClaimed(circleId, periodIndex, msg.sender, payoutAmount);
-        emit PayoutReleased(circleId, periodIndex, msg.sender, payoutAmount);
+            emit WithheldPayoutClaimed(circleId, periodIndex, msg.sender, payoutAmount);
+            emit PayoutReleased(circleId, periodIndex, msg.sender, payoutAmount);
+        }
+        // else: debt still outstanding — withheld payout preserved for further settlement calls
     }
 
     function requestExtension(uint256 circleId, uint256 periodIndex) external {
@@ -725,6 +790,10 @@ contract AdasheCircle is ReentrancyGuard {
 
     function getDebtByPeriod(uint256 circleId, uint256 periodIndex, address member) external view returns (uint256) {
         return _debtByPeriod[circleId][periodIndex][member];
+    }
+
+    function getReserveDebtByPeriod(uint256 circleId, uint256 periodIndex, address member) external view returns (uint256) {
+        return _reserveDebtByPeriod[circleId][periodIndex][member];
     }
 
     function _requireCircle(uint256 circleId) internal view returns (Circle storage c) {

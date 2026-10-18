@@ -1237,4 +1237,266 @@ contract AdasheCircleTest is Test {
         vm.expectRevert();
         rCircle.claimPayout(cid, 0);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 25. repayReserveDebt: full-cover default — stranded reserve-debt is
+    //     clearable via repayReserveDebt; mr.debtBalance reaches zero
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_repayReserveDebt_FullCover_ClearsStrandedDebt() public {
+        uint256 cid = _createAndActivate3();
+
+        // Period 0 (creator=recipient): alice+bob both contribute → creator gets reserve
+        vm.prank(alice); circle.contribute(cid, 0);
+        vm.prank(bob);   circle.contribute(cid, 0);
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+        vm.prank(creator); circle.claimPayout(cid, 0);
+
+        // Period 1 (alice=recipient): creator+bob contribute → alice gets reserve = CONTRIBUTION
+        vm.prank(creator); circle.contribute(cid, 1);
+        vm.prank(bob);     circle.contribute(cid, 1);
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+        vm.prank(alice); circle.claimPayout(cid, 1);
+
+        MemberView memory alicePre = _getMember(cid, alice);
+        assertEq(alicePre.reserveBalance, CONTRIBUTION, "alice should have full reserve");
+
+        // Period 2 (bob=recipient): creator contributes; alice defaults (full reserve coverage)
+        vm.prank(creator); circle.contribute(cid, 2);
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+
+        MemberView memory alicePost = _getMember(cid, alice);
+        assertEq(alicePost.reserveBalance, 0,            "alice reserve fully consumed");
+        assertEq(alicePost.debtBalance,    CONTRIBUTION, "alice has full debt");
+
+        // _debtByPeriod for alice in period 2 should be 0 (full reserve covered recipient)
+        assertEq(circle.getDebtByPeriod(cid, 2, alice), 0, "_debtByPeriod should be 0 for full-cover");
+
+        // _reserveDebtByPeriod for alice in period 2 should be CONTRIBUTION
+        assertEq(circle.getReserveDebtByPeriod(cid, 2, alice), CONTRIBUTION, "reserve debt should equal contribution");
+
+        // repayDebt should fail (no creditor-routing debt)
+        vm.prank(alice);
+        vm.expectRevert(bytes("no debt for period"));
+        circle.repayDebt(cid, 2);
+
+        // repayReserveDebt clears the stranded debt and credits bob's (period-2 recipient) reserve
+        MemberView memory bobBeforeRepay = _getMember(cid, bob);
+        vm.prank(alice);
+        circle.repayReserveDebt(cid, 2);
+
+        MemberView memory aliceFinal = _getMember(cid, alice);
+        assertEq(aliceFinal.debtBalance, 0, "alice debt should be zero after repayReserveDebt");
+        assertEq(circle.getReserveDebtByPeriod(cid, 2, alice), 0, "reserve debt should be zero");
+
+        // Bob's reserveBalance should increase by CONTRIBUTION (reserve restored)
+        MemberView memory bobAfterRepay = _getMember(cid, bob);
+        assertEq(
+            bobAfterRepay.reserveBalance - bobBeforeRepay.reserveBalance,
+            CONTRIBUTION,
+            "bob reserve should be restored by repayment"
+        );
+
+        // Alice can now claim payout in period 2 (she was the recipient — wait, bob is recipient)
+        // bob is period 2 recipient; he now has zero debt (never had any). claimPayout should succeed.
+        vm.prank(bob);
+        circle.claimPayout(cid, 2);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 26. executeReplacement: outgoing IS the period recipient, final deadline
+    //     passed, finalizePeriod not yet called — recipient field updates to
+    //     replacement; outgoing stays in participants (expired-PENDING guard);
+    //     finalizePeriod runs correctly with replacement as recipient
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_executeReplacement_OutgoingIsRecipient_DeadlinePassed_NoFinalize() public {
+        // 3-member circle: [creator(0), alice(1), bob(2)]
+        // Period 2: bob is the recipient.
+        // Setup: run periods 0 and 1 normally to reach period 2.
+        uint256 cid = _createAndActivate3();
+        address newBob = makeAddr("newBob");
+        _fund(newBob, 10_000e6);
+
+        // Period 0 (creator=recipient): alice+bob contribute
+        vm.prank(alice); circle.contribute(cid, 0);
+        vm.prank(bob);   circle.contribute(cid, 0);
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+        vm.prank(creator); circle.claimPayout(cid, 0);
+
+        // Period 1 (alice=recipient): creator+bob contribute
+        vm.prank(creator); circle.contribute(cid, 1);
+        vm.prank(bob);     circle.contribute(cid, 1);
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+        vm.prank(alice); circle.claimPayout(cid, 1);
+
+        // Now in period 2 (bob=recipient).
+        // creator contributes; alice defaults (doesn't contribute).
+        // We do NOT call finalizePeriod yet.
+        vm.prank(creator); circle.contribute(cid, 2);
+
+        // Warp past alice's final deadline (bob's replacement can only happen after all final deadlines)
+        _skipPastFinalDeadline(cid);
+
+        // Creator approves bob → newBob replacement (bob has no debt: he was always recipient)
+        vm.prank(creator);
+        circle.approveReplacement(cid, bob, newBob);
+
+        // Execute the replacement — bob is current-period recipient, final deadline passed
+        vm.prank(creator);
+        circle.executeReplacement(cid, bob);
+
+        // ASSERT 1: period.recipient updated to newBob
+        (address periodRecipient, , , , , , ) = circle.getPeriod(cid, 2);
+        assertEq(periodRecipient, newBob, "period 2 recipient should be newBob after replacement");
+
+        // ASSERT 2: bob is no longer in payoutOrder
+        assertFalse(circle.isInPayoutOrder(cid, bob),   "bob should be removed from payoutOrder");
+        assertTrue(circle.isInPayoutOrder(cid, newBob), "newBob should be in payoutOrder");
+
+        // ASSERT 3: bob's member record shows removal
+        MemberView memory bobMv = _getMember(cid, bob);
+        assertFalse(bobMv.approved,       "bob.approved should be false");
+        assertGt(bobMv.removedAt, 0,      "bob.removedAt should be set");
+        assertEq(bobMv.replacedBy, newBob, "bob.replacedBy should be newBob");
+
+        // Now finalizePeriod: alice is still in participants (creator contributed, alice defaulted).
+        // newBob is the recipient. finalizePeriod should run without reverting.
+        circle.finalizePeriod(cid);
+
+        // ASSERT 4: alice defaulted with debt
+        MemberView memory aliceMv = _getMember(cid, alice);
+        assertGt(aliceMv.debtBalance, 0, "alice should have debt from period 2 default");
+
+        // ASSERT 5: circle is COMPLETED (period 2 was the last period)
+        assertEq(
+            uint8(_circleStatus(cid)),
+            uint8(AdasheCircle.CircleStatus.COMPLETED),
+            "circle should be COMPLETED after period 2 finalized"
+        );
+
+        // ASSERT 6: newBob (new recipient) has claimable payout
+        // 1 contributor paid (creator), so totalCollected = CONTRIBUTION.
+        // reserveCredit = min(CONTRIBUTION, CONTRIBUTION) = CONTRIBUTION.
+        // netPayout = CONTRIBUTION - CONTRIBUTION = 0.
+        // newBob has no debt, but claimable = 0 → claimPayout reverts "no claimable payout".
+        // The circle is still consistent and completed.
+        (, , , bool payoutReleased, , , ) = circle.getPeriod(cid, 2);
+        assertFalse(payoutReleased, "period 2 payout not yet released");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 27. settleOwnDebtFromWithheldPayout: multi-period debt — withheld payout
+    //     stays open after partial settlement; period only closes once debt == 0
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_settleOwnDebtFromWithheldPayout_MultiPeriodDebt_PartialThenFull() public {
+        // Need a 4-member circle so we can engineer two separate defaults by the same member.
+        // Members: [creator(0), alice(1), bob(2), dan(3)]
+        // Plan:
+        //   Period 0 (creator=recipient): alice, bob, dan contribute.
+        //   Period 1 (alice=recipient):   creator, bob contribute; dan DEFAULTS → dan gets debt_1.
+        //   Period 2 (bob=recipient):     creator, alice contribute; dan DEFAULTS → dan gets debt_2.
+        //   Period 3 (dan=recipient):     creator, alice, bob contribute → dan gets withheld payout
+        //                                 (dan has debt_1 + debt_2).
+        //
+        // After completion:
+        //   dan calls settleOwnDebtFromWithheldPayout(cid, 3, 1) → partial settle (debt_1).
+        //   Period 3 should still be withheld (dan still has debt_2).
+        //   dan calls settleOwnDebtFromWithheldPayout(cid, 3, 2) → full settle (debt_2 + remainder release).
+        //   Period 3 now fully released; dan receives leftover withheld payout (if any).
+
+        address dan = makeAddr("dan");
+        _fund(dan, 10_000e6);
+
+        address[] memory order = new address[](4);
+        order[0] = creator;
+        order[1] = alice;
+        order[2] = bob;
+        order[3] = dan;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("X4", CONTRIBUTION, 4, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(dan);     circle.joinCircle(cid);
+
+        vm.prank(creator); circle.approveMember(cid, creator);
+        vm.prank(creator); circle.approveMember(cid, alice);
+        vm.prank(creator); circle.approveMember(cid, bob);
+        vm.prank(creator); circle.approveMember(cid, dan);
+
+        // Period 0 (creator=recipient): alice, bob, dan contribute
+        vm.prank(alice); circle.contribute(cid, 0);
+        vm.prank(bob);   circle.contribute(cid, 0);
+        vm.prank(dan);   circle.contribute(cid, 0);
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+        vm.prank(creator); circle.claimPayout(cid, 0);
+
+        // Period 1 (alice=recipient): creator, bob contribute; dan DEFAULTS
+        vm.prank(creator); circle.contribute(cid, 1);
+        vm.prank(bob);     circle.contribute(cid, 1);
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+        // alice claimable: 2*CONTRIBUTION - CONTRIBUTION = CONTRIBUTION (net)
+        vm.prank(alice); circle.claimPayout(cid, 1);
+
+        uint256 danDebt1 = _getMember(cid, dan).debtBalance;
+        assertEq(danDebt1, CONTRIBUTION, "dan debt from period 1 default");
+
+        // Period 2 (bob=recipient): creator, alice contribute; dan DEFAULTS again
+        vm.prank(creator); circle.contribute(cid, 2);
+        vm.prank(alice);   circle.contribute(cid, 2);
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+        vm.prank(bob); circle.claimPayout(cid, 2);
+
+        uint256 danDebt2 = _getMember(cid, dan).debtBalance;
+        assertEq(danDebt2, 2 * CONTRIBUTION, "dan debt should be 2x after two defaults");
+
+        // Period 3 (dan=recipient): creator, alice, bob contribute
+        vm.prank(creator); circle.contribute(cid, 3);
+        vm.prank(alice);   circle.contribute(cid, 3);
+        vm.prank(bob);     circle.contribute(cid, 3);
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+
+        // Circle COMPLETED; dan has 2×CONTRIBUTION debt; payout withheld
+        assertEq(uint8(_circleStatus(cid)), uint8(AdasheCircle.CircleStatus.COMPLETED));
+
+        (, , , , bool withheld3, , ) = circle.getPeriod(cid, 3);
+        assertTrue(withheld3, "dan period 3 payout should be withheld");
+
+        // ── First settlement: settle debt from period 1 ─────────────────────
+        vm.prank(dan);
+        circle.settleOwnDebtFromWithheldPayout(cid, 3, 1);
+
+        MemberView memory danMid = _getMember(cid, dan);
+        assertEq(danMid.debtBalance, CONTRIBUTION, "dan should still have 1x debt after partial settle");
+
+        // Period 3 must still be withheld (debt remains)
+        (, , , bool released3Mid, bool withheld3Mid, , ) = circle.getPeriod(cid, 3);
+        assertFalse(released3Mid, "period 3 should NOT be released after partial settle");
+        assertTrue(withheld3Mid,  "period 3 should still be withheld after partial settle");
+
+        // ── Second settlement: settle debt from period 2 ────────────────────
+        vm.prank(dan);
+        circle.settleOwnDebtFromWithheldPayout(cid, 3, 2);
+
+        MemberView memory danFinal = _getMember(cid, dan);
+        assertEq(danFinal.debtBalance, 0, "dan debt fully cleared after second settle");
+
+        // Period 3 must now be released
+        (, , , bool released3Final, bool withheld3Final, , ) = circle.getPeriod(cid, 3);
+        assertTrue(released3Final,  "period 3 should be released after full settle");
+        assertFalse(withheld3Final, "period 3 should not be withheld after full settle");
+    }
 }
