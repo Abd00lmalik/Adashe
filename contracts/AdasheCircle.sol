@@ -363,9 +363,9 @@ contract AdasheCircle is ReentrancyGuard {
 
         usdc.safeTransferFrom(msg.sender, address(this), amount);
 
-        // Route repaid funds back to the period recipient's reserve balance,
-        // restoring the reserve that was used to cover this default.
-        memberRecords[circleId][p.recipient].reserveBalance += amount;
+        // Restore the defaulter's own reserve balance: their reserve was the one
+        // consumed in finalizePeriod, so repayment returns it to them.
+        memberRecords[circleId][msg.sender].reserveBalance += amount;
 
         emit DebtRepaid(circleId, periodIndex, msg.sender, amount);
     }
@@ -678,7 +678,8 @@ contract AdasheCircle is ReentrancyGuard {
             _reserveDebtByPeriod[circleId][debtPeriodIndex][msg.sender] = reservePeriodDebt - reserveSettleAmount;
             p.claimableAmount -= reserveSettleAmount;
 
-            memberRecords[circleId][creditorPeriod.recipient].reserveBalance += reserveSettleAmount;
+            // Restore the defaulter's own reserve (same rule as repayReserveDebt).
+            memberRecords[circleId][msg.sender].reserveBalance += reserveSettleAmount;
 
             emit DebtRepaid(circleId, debtPeriodIndex, msg.sender, reserveSettleAmount);
         }

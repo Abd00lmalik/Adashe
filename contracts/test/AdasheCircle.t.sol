@@ -1283,8 +1283,10 @@ contract AdasheCircleTest is Test {
         vm.expectRevert(bytes("no debt for period"));
         circle.repayDebt(cid, 2);
 
-        // repayReserveDebt clears the stranded debt and credits bob's (period-2 recipient) reserve
-        MemberView memory bobBeforeRepay = _getMember(cid, bob);
+        // repayReserveDebt restores the DEFAULTER's (alice's) own reserve, not the recipient's.
+        // Alice's reserve was consumed by finalizePeriod; repayment returns it to her.
+        MemberView memory bobBeforeRepay  = _getMember(cid, bob);
+        uint256 aliceReserveBefore = _getMember(cid, alice).reserveBalance; // = 0 (consumed)
         vm.prank(alice);
         circle.repayReserveDebt(cid, 2);
 
@@ -1292,12 +1294,19 @@ contract AdasheCircleTest is Test {
         assertEq(aliceFinal.debtBalance, 0, "alice debt should be zero after repayReserveDebt");
         assertEq(circle.getReserveDebtByPeriod(cid, 2, alice), 0, "reserve debt should be zero");
 
-        // Bob's reserveBalance should increase by CONTRIBUTION (reserve restored)
+        // Alice's own reserve is restored (she repaid what was consumed from her reserve).
+        assertEq(
+            aliceFinal.reserveBalance - aliceReserveBefore,
+            CONTRIBUTION,
+            "alice reserve should be restored after repayReserveDebt"
+        );
+
+        // Bob's reserve must NOT change — his reserve is independent of alice's debt repayment.
         MemberView memory bobAfterRepay = _getMember(cid, bob);
         assertEq(
-            bobAfterRepay.reserveBalance - bobBeforeRepay.reserveBalance,
-            CONTRIBUTION,
-            "bob reserve should be restored by repayment"
+            bobAfterRepay.reserveBalance,
+            bobBeforeRepay.reserveBalance,
+            "bob reserve must be unchanged by alice repayReserveDebt"
         );
 
         // Alice can now claim payout in period 2 (she was the recipient — wait, bob is recipient)
