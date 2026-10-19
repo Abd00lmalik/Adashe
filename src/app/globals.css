@@ -1,0 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-ivory: #F5F0E6;
+  --color-forest: #244B3C;
+  --color-terra: #C77D55;
+  --color-forest-light: #EAF0ED;
+}
+
+@layer base {
+  html {
+    font-family: 'DM Sans', sans-serif;
+    background-color: #F5F0E6;
+    color: #244B3C;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Prevent horizontal overflow at all viewport widths */
+    overflow-x: hidden;
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: #F5F0E6;
+    overflow-x: hidden;
+    /* Safe-area inset support for iPhone notch / Dynamic Island / home indicator */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-feature-settings: 'cv11', 'cv01';
+  }
+
+  /* Accessible focus rings */
+  :focus-visible {
+    outline: 2px solid #C77D55;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white/70 backdrop-blur-sm rounded-2xl shadow-card border border-ivory-300/60;
+  }
+
+  .card-forest {
+    @apply bg-forest-500 rounded-2xl shadow-card text-white;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-terra-400 text-white font-medium text-sm transition-all hover:bg-terra-500 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-terra-400 focus-visible:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-forest-500 text-white font-medium text-sm transition-all hover:bg-forest-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-forest-500 font-medium text-sm transition-all hover:bg-forest-50 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .input-base {
+    @apply w-full rounded-xl border border-ivory-300 bg-white/80 px-4 py-2.5 text-forest-500 placeholder-muted text-sm focus:outline-none focus:border-terra-400 focus:ring-1 focus:ring-terra-400 transition-colors;
+  }
+
+  .badge-pending {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700;
+  }
+
+  .badge-active {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700;
+  }
+
+  .badge-completed {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-forest-100 text-forest-500;
+  }
+
+  .badge-danger {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700;
+  }
+
+  .usdc-amount {
+    @apply font-mono tabular-nums;
+  }
+
+  /* Hide scrollbar for step indicator and tab overflow scroll */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

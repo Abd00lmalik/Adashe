@@ -1,0 +1,91 @@
+// Prisma schema for Adashe Onchain backend
+// Run: prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invite tokens: created by circle creators, consumed on join
+// ─────────────────────────────────────────────────────────────────────────────
+model Invite {
+  id         String   @id @default(cuid())
+  token      String   @unique
+  circleId   String   // onchain circle ID (as string to avoid BigInt issues)
+  createdBy  String   // creator wallet address (lowercase)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  usedAt     DateTime?
+  usedBy     String?  // wallet address that used the invite
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  pinAttempts PinAttempt[]
+
+  @@index([circleId])
+  @@index([token])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PIN attempt tracking for rate limiting (per IP, per invite)
+// ─────────────────────────────────────────────────────────────────────────────
+model PinAttempt {
+  id        String   @id @default(cuid())
+  inviteId  String
+  ipAddress String
+  attemptedAt DateTime @default(now())
+  succeeded Boolean  @default(false)
+
+  invite    Invite   @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+
+  @@index([inviteId, ipAddress])
+  @@index([ipAddress, attemptedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Circle PIN hash — stored server-side, never onchain in plaintext
+// ─────────────────────────────────────────────────────────────────────────────
+model CirclePin {
+  circleId  String   @id // onchain circle ID as string
+  pinHash   String   // bcrypt hash of PIN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// In-app notifications — created server-side for relevant contract events
+// ─────────────────────────────────────────────────────────────────────────────
+model Notification {
+  id         String           @id @default(cuid())
+  circleId   String
+  wallet     String           // recipient wallet address (lowercase)
+  type       NotificationType
+  title      String
+  body       String
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  @@index([wallet, readAt])
+  @@index([circleId])
+}
+
+enum NotificationType {
+  CIRCLE_ACTIVATED
+  CONTRIBUTION_DUE
+  DEADLINE_APPROACHING
+  PERIOD_FINALIZED
+  PAYOUT_AVAILABLE
+  PAYOUT_WITHHELD
+  DEBT_RECORDED
+  EXTENSION_REQUESTED
+  EXTENSION_APPROVED
+  REPLACEMENT_NEEDED
+  MEMBER_APPROVED
+  MEMBER_JOINED
+  CIRCLE_COMPLETED
+}

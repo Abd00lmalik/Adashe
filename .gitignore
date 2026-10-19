@@ -1,7 +1,13 @@
 # Environment and secrets
 .env
 .env.*
-!.env.example
+.env.local
+.env.production
+!env.example
+
+# Next.js
+.next/
+out/
 
 # Foundry build artifacts
 contracts/out/

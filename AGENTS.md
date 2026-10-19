@@ -26,10 +26,24 @@
 |---|---|
 | `contracts/AdasheCircle.sol` | Main contract |
 | `contracts/test/AdasheCircle.t.sol` | Foundry unit tests (44 tests, all pass) |
-| `contracts/contract-metadata/AdasheCircle.json` | Deployment metadata |
+| `contracts/contract-metadata/AdasheCircle.json` | Deployment metadata + full ABI |
 | `contracts/out/AdasheCircle.sol/AdasheCircle.json` | Compiled artifact |
 | `foundry.toml` | Foundry config (Paris EVM, OZ 5.1.0) |
 | `init.md` | Full product specification |
+| `README.md` | Local setup, Vercel deployment, contract notes |
+| `docs/architecture.md` | Stack, env vars, PIN security, known limitations |
+| `.env.example` | All required env vars with descriptions |
+| `prisma/schema.prisma` | PostgreSQL schema (Invite, CirclePin, PinAttempt, Notification) |
+| `src/` | Next.js 14 App Router frontend + API routes |
+
+## Frontend Stack
+
+- Next.js 14 App Router, TypeScript, Tailwind CSS
+- wagmi v2 + ConnectKit (Arc Testnet, WalletConnect)
+- PostgreSQL + Prisma (invites, PIN, notifications)
+- Design tokens: ivory `#F5F0E6`, forest `#244B3C`, terracotta `#C77D55`
+- 0 TypeScript errors, 0 ESLint errors (verified 2026-10-18)
+- Foundry tests: 44/44 pass
 
 ## Constructor Args
 
@@ -37,3 +51,48 @@
 AdasheCircle(address usdcAddress)
 usdcAddress = 0x3600000000000000000000000000000000000000
 ```
+
+## Frontend Build
+
+**Framework:** Next.js 14 App Router, React 18, TypeScript, Tailwind CSS v3
+**Dev server:** port 5173 (`bun run dev` → `next dev -p 5173`)
+**Stack:** wagmi v2 + ConnectKit, viem, TanStack Query, Prisma + PostgreSQL, iron-session, bcryptjs
+
+### Key files
+| Path | Description |
+|------|-------------|
+| `src/lib/contract.ts` | ABI import, contract address, enum mirrors, explorer helpers |
+| `src/lib/usdc.ts` | USDC address, ERC-20 ABI, formatUsdc, parseUsdc |
+| `src/lib/wagmi.ts` | wagmiConfig, Arc Testnet chain definition |
+| `src/lib/db.ts` | Prisma singleton |
+| `src/lib/pin.ts` | Server-side PIN hashing, rate limiting |
+| `src/lib/invite.ts` | Invite token create/validate/revoke |
+| `src/providers/Web3Provider.tsx` | WagmiProvider + ConnectKitProvider |
+| `src/app/layout.tsx` | Root layout |
+| `src/app/page.tsx` | Landing page |
+| `src/app/dashboard/page.tsx` | My Circles dashboard |
+| `src/app/circles/new/page.tsx` | Create circle (5-step wizard) |
+| `src/app/circles/[circleId]/page.tsx` | Circle detail (tabbed: overview, members, periods, my position, manage) |
+| `src/app/join/[token]/page.tsx` | Invite join flow (PIN → joinCircle tx) |
+| `src/app/api/circles/[circleId]/invite/route.ts` | Create/list invite tokens |
+| `src/app/api/join/verify/route.ts` | Verify PIN, return circleId |
+| `src/app/api/notifications/route.ts` | Get/mark-read notifications |
+| `prisma/schema.prisma` | Invite, PinAttempt, CirclePin, Notification models |
+| `next.config.mjs` | Next.js config; webpack alias stubs for @base-org/account chain |
+| `docs/architecture.md` | Full architecture, rules, known limitations |
+| `env.example` | All required environment variables |
+
+### Required env vars before running
+- `DATABASE_URL` — PostgreSQL connection string
+- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` — WalletConnect Cloud project ID
+- `SESSION_SECRET` — 32+ char random string for session cookies
+
+### Prisma migration
+After setting `DATABASE_URL`, run:
+```
+bunx prisma migrate dev --name init
+```
+
+### Known limitation
+`repayDebt()` issues a push transfer to the creditor; if the creditor address is USDC-blocklisted on Arc,
+the debtor cannot clear their debt. Documented in `docs/architecture.md`.
