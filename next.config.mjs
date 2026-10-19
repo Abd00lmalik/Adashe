@@ -18,6 +18,10 @@ const nextConfig = {
       '@x402/evm': false,
       '@coinbase/cdp-sdk': false,
       '@base-org/account': false,
+      // MetaMask SDK pulls in React Native async storage — not available in browser/serverless
+      '@react-native-async-storage/async-storage': false,
+      // WalletConnect logger pulls in pino-pretty — optional, not needed at runtime
+      'pino-pretty': false,
     }
     return config
   },
