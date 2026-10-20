@@ -10,6 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatDeadline, sameAddress } from '@/lib/utils'
 import { CheckCircle2, Clock, AlertCircle } from 'lucide-react'
 
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+
 interface PeriodTimelineProps {
   cid: bigint
   circleRaw: readonly unknown[]
@@ -17,9 +19,13 @@ interface PeriodTimelineProps {
 }
 
 export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps) {
-  const [, , , , memberCount, , , , , , , currentPeriod] = circleRaw as [
+  // circleRaw indices: 0=id, 1=creator, 2=name, 3=contributionAmount, 4=memberCount,
+  // 5=frequency, 6=weekday, 7=anchorDay, 8=pinHash, 9=status, 10=startTime,
+  // 11=currentPeriod, 12=reserveAmount, 13=gracePeriod
+  const [, , , , memberCount, , , , , status, , currentPeriod] = circleRaw as [
     bigint, string, string, bigint, number, number, number, number, string, number, bigint, number, bigint, bigint
   ]
+  const isPendingCircle = (status as unknown as number) === 0 // CircleStatus.PENDING
 
   const periodContracts = Array.from({ length: memberCount }, (_, i) => ({
     ...adasheContract,
@@ -48,13 +54,20 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
           ? (periodsData[i].result as [string, bigint, bigint, boolean, boolean, bigint, string[]])
           : null
 
-        const [recipient, deadline, grossEntitlement, payoutReleased, payoutWithheld, withheldAmount, participants] =
+        const [recipient, deadline, grossEntitlement, payoutReleased, payoutWithheld, withheldAmount] =
           pd ?? ['', 0n, 0n, false, false, 0n, []]
+
+        // A period is "uninitialized" when the circle is PENDING (startCircle not yet called)
+        // or when the on-chain call failed. In both cases the recipient is the zero address or ''.
+        const recipientStr = recipient as string
+        const hasRealRecipient =
+          recipientStr !== '' &&
+          recipientStr.toLowerCase() !== ZERO_ADDRESS
 
         const isCurrent = i === Number(currentPeriod)
         const isPast = i < Number(currentPeriod)
         const isFuture = i > Number(currentPeriod)
-        const isRecipient = sameAddress(recipient as string, address)
+        const isRecipient = hasRealRecipient && sameAddress(recipientStr, address)
 
         return (
           <div
@@ -84,12 +97,14 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
                     {payoutWithheld && <Badge variant="warning">Withheld</Badge>}
                     {isRecipient && <Badge variant="default">You receive</Badge>}
                   </div>
-                  {recipient !== '' && (
+                  {hasRealRecipient ? (
                     <div className="flex items-center gap-1 mt-0.5 min-w-0">
                       <span className="text-xs text-muted shrink-0">Recipient:</span>
-                      <AddressDisplay address={recipient as string} chars={3} showExplorer={false} className="text-xs min-w-0" />
+                      <AddressDisplay address={recipientStr} chars={3} showExplorer={false} className="text-xs min-w-0" />
                     </div>
-                  )}
+                  ) : isPendingCircle ? (
+                    <p className="text-xs text-muted mt-0.5 italic">Assigned when circle starts</p>
+                  ) : null}
                 </div>
               </div>
 

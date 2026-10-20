@@ -49,7 +49,7 @@ export function CreateCircleForm() {
   const { address } = useAccount()
   const router = useRouter()
   const [step, setStep] = useState(0)
-  const [form, setForm] = useState<FormState>({ ...defaultForm, payoutOrder: [address ?? '', '', '', '', ''] })
+  const [form, setForm] = useState<FormState>({ ...defaultForm })
   const [txState, setTxState] = useState<'idle' | 'signing' | 'confirming' | 'success' | 'error'>('idle')
   const [txHash, setTxHash] = useState<string>('')
   const [txError, setTxError] = useState<string>('')
@@ -60,7 +60,6 @@ export function CreateCircleForm() {
   const handleMemberCountChange = (n: number) => {
     const count = Math.min(MAX, Math.max(MIN, n))
     const newOrder = Array(count).fill('').map((_, i) => form.payoutOrder[i] ?? '')
-    if (newOrder[0] === '' && address) newOrder[0] = address
     setForm((f) => ({ ...f, memberCount: count, payoutOrder: newOrder }))
   }
 
@@ -299,31 +298,46 @@ export function CreateCircleForm() {
           {step === 2 && (
             <div className="space-y-3">
               <p className="text-sm text-muted text-pretty">
-                Enter wallet addresses in the order members will receive their payout. 
+                Enter wallet addresses in the order members will receive their payout.
                 Position 1 receives first. All addresses must be added before the circle can start.
               </p>
-              {form.payoutOrder.map((addr, i) => (
-                <div key={i}>
-                  <Label htmlFor={`addr-${i}`}>Position {i + 1}{i === 0 ? ' (you)' : ''}</Label>
-                  <Input
-                    id={`addr-${i}`}
-                    type="text"
-                    inputMode="text"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    placeholder="0x…"
-                    value={addr}
-                    onChange={(e) => {
-                      const updated = [...form.payoutOrder]
-                      updated[i] = e.target.value
-                      setForm((f) => ({ ...f, payoutOrder: updated }))
-                    }}
-                    className="mt-1 font-mono text-xs sm:text-sm"
-                  />
+              {address && (
+                <div className="rounded-lg bg-forest-50 border border-forest-200 px-3 py-2 text-xs text-forest-700 font-mono break-all">
+                  Your connected wallet: {address}
                 </div>
-              ))}
+              )}
+              {form.payoutOrder.map((addr, i) => {
+                const isYou = address ? addr.toLowerCase() === address.toLowerCase() : false
+                return (
+                  <div key={i}>
+                    <Label htmlFor={`addr-${i}`}>
+                      Position {i + 1}{isYou ? ' (you)' : ''}
+                    </Label>
+                    <Input
+                      id={`addr-${i}`}
+                      type="text"
+                      inputMode="text"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      placeholder="0x…"
+                      value={addr}
+                      onChange={(e) => {
+                        const updated = [...form.payoutOrder]
+                        updated[i] = e.target.value
+                        setForm((f) => ({ ...f, payoutOrder: updated }))
+                      }}
+                      className="mt-1 font-mono text-xs sm:text-sm"
+                    />
+                  </div>
+                )
+              })}
+              {address && !form.payoutOrder.some(a => a.toLowerCase() === address.toLowerCase()) && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Your connected wallet is not assigned to any position. You can still create the circle, but you will not be a member.
+                </p>
+              )}
             </div>
           )}
 

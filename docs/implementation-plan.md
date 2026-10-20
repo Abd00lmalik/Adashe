@@ -1,186 +1,58 @@
-This is a significant plan — two contract changes plus seven frontend improvements. Let me read all the affected files before writing it. I now have a complete picture. Let me also read the logo image that was uploaded: I have everything I need. Now writing the plan.
+Good. Since you're on Supabase (not Vercel Postgres), the env var name is likely `DATABASE_URL` — but let me read the actual Prisma schema and invite API to confirm exactly what's being used, then read all other relevant files before writing the plan. Now I have everything I need. Let me also check the contract-metadata ABI to confirm exactly which functions are missing: Confirmed. The ABI in `contract-metadata/AdasheCircle.json` is missing `getPayoutOrder`, `getPeriod`, `getContribution`, `startCircle`, and `joinCircle`. It is a stale artifact from before these functions were added. The Solidity source has all of them. The fix is to recompile (`forge build`) and extract the fresh ABI.
+
+Now I have a complete, grounded picture. Writing the plan: Good. Now I have everything. Writing the updated plan with the three bug fixes: Here is the complete plan:
 
 ---
 
-## Implementation Plan: Adashe UI Improvements and Contract Upgrade (v5)
+## Implementation Plan: Adashe v6 — Bug Fixes
 
-### Summary
+### Root causes
 
-Eight distinct changes across two layers: (1) the Solidity contract gets two targeted upgrades — auto-approval on join for pre-approved addresses, and a new `DAILY` frequency — plus a new `startCircle()` explicit start mechanism; (2) the frontend gets updated images, scroll animations, em dash removal, invite-link bug fix, the approval UX simplification, the manual start flow, daily frequency support, and the official Adashe logo integrated throughout.
+**Bug 1 — Creator auto-inserted into Position 1**
+`CreateCircleForm.tsx` initialises `payoutOrder` as `[address ?? '', ...]` (line 52) and re-fills slot 0 in `handleMemberCountChange` (line 63). The Step 2 label hardcodes `i === 0 ? ' (you)' : ''`. The contract stores exactly what the frontend submits, so this is a pure UI bug. Fix: blank all slots at init; show `(you)` dynamically on whichever slot matches the connected wallet.
 
----
+**Bug 2 — Period recipients show 0x000...000**
+`contracts/contract-metadata/AdasheCircle.json` (the ABI the frontend imports) is missing `getPayoutOrder`, `getPeriod`, `getContribution`, `startCircle`, and `joinCircle`. These functions exist in the Solidity source but the ABI was never regenerated after they were added. Every `useReadContracts` call for `getPayoutOrder`/`getPeriod` fails silently and falls back to zero values. Fix: `forge build` regenerates the ABI; redeploy since the currently deployed bytecode also lacks these function selectors; update all address references. Additionally, for PENDING circles periods are not initialized until `startCircle()` runs — the frontend must show a truthful "Assigned when circle starts" placeholder rather than rendering zero addresses.
 
-### Architecture
+**Bug 3 — "Failed to create invite" every time**
+The invite API route catches all Prisma errors and throws a single generic message — the real error (Prisma connection refused, bad `DATABASE_URL`) never reaches the UI. The server does log it, but the creator sees nothing actionable. Fix: return the actual error string in development and a meaningful (non-generic) message in production. Separately: the schema reads `DATABASE_URL` — for Supabase on Vercel this must be the pooled connection string (Supabase calls it "Transaction pooler" or "Session pooler" URL). The `.env.example` will document this.
 
-**Blockchain:** Arc Testnet (Chain ID 5042002). New deployment required; old address `0xcd7c871f4d0ce61ef2c90f12d2b0384299134784` becomes stale.
+### Files to change
 
-**Contract changes (v5):**
-- `Frequency` enum: add `DAILY = 0`, shift `WEEKLY = 1`, `MONTHLY = 2` (or insert `DAILY = 2` to preserve existing enum order — must choose carefully since the ABI and all tests depend on numeric values)
-- `joinCircle()`: auto-approve the joining wallet if it is in `payoutOrder`; remove need for `approveMember()` for the normal flow; do NOT auto-activate — joining all seats makes the circle "ready" but creator must call `startCircle()` explicitly
-- Remove `approveMember()` from the normal flow (keep it for possible admin override or remove entirely — examine what breaks)
-- Add `startCircle()`: callable only by creator, only when all members have joined, circle is PENDING; sets status to ACTIVE, startTime, initializes period 0
-- `_periodDeadline`: add `DAILY` branch: `startTime + periodIndex * 1 days`
-- `createCircle()` validation: add `require` for DAILY frequency (no weekday/anchorDay needed)
-- All tests: update for new enum values, new join behavior, new start flow
+| # | File | Why |
+|---|------|-----|
+| 1 | `contracts/AdasheCircle.sol` | No logic changes; recompile only to regenerate ABI |
+| 2 | `contracts/contract-metadata/AdasheCircle.json` | Replace with fresh `forge build` artifact; update address |
+| 3 | `src/lib/contract.ts` | Update hardcoded fallback address |
+| 4 | `AGENTS.md` | New contract address |
+| 5 | `.env.example` | Document that `DATABASE_URL` = Supabase pooled connection string |
+| 6 | `src/components/create/CreateCircleForm.tsx` | Remove slot-0 autofill; dynamic `(you)` label |
+| 7 | `src/components/circle/PeriodTimeline.tsx` | Show "Assigned when circle starts" for PENDING circles |
+| 8 | `src/components/circle/MembersList.tsx` | Guard against empty payoutOrder when ABI call fails |
+| 9 | `src/components/circle/CreatorPanel.tsx` | Pass `data.error` verbatim in toast; don't swallow errors |
+| 10 | `src/app/api/circles/[circleId]/invite/route.ts` | Return descriptive error in catch; dev vs prod distinction |
 
-**Frontend changes:**
-- Images: replace all Unsplash URLs on landing page with finance/savings-focused authentic photos
-- Scroll animations: `IntersectionObserver`-based fade-in on sections (no heavy library — pure CSS + tiny hook); respect `prefers-reduced-motion`
-- Em dashes: grep and remove all `—` across all source files
-- Circle creation: remove PIN step (PIN is now optional/internal — the join eligibility is address-based); remove approval step from join UX; add "ready to start" state
-- Invite bug fix: the `generateInvite` function fails silently when `DATABASE_URL` is not set — add proper error surfacing; also the invite POST needs the `NEXT_PUBLIC_APP_URL` env to produce correct links
-- CreatorPanel: replace approval buttons with `startCircle()` CTA when all members joined; show "Ready to Start" status clearly
-- Frequency selector: add Daily option wired to `Frequency.DAILY = 2` (inserting as value 2 to preserve WEEKLY=0, MONTHLY=1)
-- Logo: save uploaded PNG to `public/logo.png`, use in Navbar and Hero instead of the "A" letter mark
+### Build sequence
 
----
+1. `forge build` — regenerate ABI, confirm 52/52 tests pass, redeploy to Arc Testnet
+2. Update `contract-metadata/AdasheCircle.json`, `contract.ts`, `AGENTS.md`, `.env`
+3. Fix `CreateCircleForm.tsx` — remove autofill, fix `(you)` label
+4. Fix `PeriodTimeline.tsx` — pending state guard
+5. Fix `MembersList.tsx` — empty payoutOrder guard
+6. Fix invite API route — descriptive errors; fix `CreatorPanel` toast message
+7. `tsc --noEmit` + `next lint` — 0 errors
 
-### Contract change design decisions (before writing code)
+### Done when
 
-**Enum order:** Insert `DAILY` as value `2` to preserve `WEEKLY = 0`, `MONTHLY = 1`. All existing deployed circles use 0 or 1; tests use 0 and 1. This avoids any migration concern.
-
-**Auto-approve on join:** `joinCircle()` sets both `mr.joined = true` AND `mr.approved = true`. `approveMember()` is kept but becomes a no-op if already approved (backward-compatible). `_allApproved()` is unchanged. The circle becomes "all-joined" when every payout order address has joined; the creator then calls `startCircle()`.
-
-**startCircle():** Replaces the automatic activation in `approveMember()`. The creator calls it explicitly. It requires all members joined+approved and status PENDING. Sets ACTIVE, startTime, initializes period 0.
-
-**Daily schedule:** Period deadline = `startTime + periodIndex * 1 days`. Period 0 is still `startTime`. Grace period stays 240 hours (10 days) — unchanged, as it is expressed in hours not periods.
-
----
-
-### Files to Create / Modify
-
-**Contract**
-1. `contracts/AdasheCircle.sol` — add `DAILY` to Frequency enum; auto-approve in joinCircle; add startCircle(); add daily branch to _periodDeadline; update createCircle validation
-2. `contracts/test/AdasheCircle.t.sol` — update helpers for new enum index 2; add tests for daily schedule, auto-approve join, startCircle(); update all existing tests that use manual approveMember activation flow
-3. `contracts/contract-metadata/AdasheCircle.json` — updated after redeployment
-4. `AGENTS.md` — new contract address, test count, summary
-
-**Frontend: lib**
-5. `src/lib/contract.ts` — add `Frequency.DAILY = 2`; add `startCircle` to capability notes; update `frequencyLabel` helper
-
-**Frontend: components**
-6. `public/logo.png` — save the uploaded Adashe logo
-7. `src/components/layout/Navbar.tsx` — replace "A" lettermark with `<Image src="/logo.png" />` 
-8. `src/components/landing/Hero.tsx` — replace hero image URL; add logo to hero area; update text removing em dashes
-9. `src/app/page.tsx` — new finance/savings Unsplash images; remove em dashes; add scroll animation wrapper
-10. `src/components/landing/HowItWorks.tsx` — scroll animation; remove em dashes
-11. `src/components/landing/SampleCircle.tsx` — remove em dashes
-12. `src/hooks/useScrollReveal.ts` — new: tiny IntersectionObserver hook for scroll-reveal
-13. `src/components/ui/ScrollReveal.tsx` — new: wrapper component applying reveal animation
-14. `src/components/create/CreateCircleForm.tsx` — add Daily frequency option; remove approval-step messaging; update review text
-15. `src/components/circle/CreatorPanel.tsx` — replace approveMember UI with startCircle CTA; show "Ready to Start" when all joined; fix invite link error surfacing
-16. `src/components/circle/CircleHeader.tsx` — add `frequencyLabel` for DAILY; remove em dashes
-17. `src/components/circle/MembersList.tsx` — remove approval column (auto-approved); remove em dashes
-18. `src/app/join/[token]/page.tsx` — remove "pending approval" messaging; update join flow text
-19. `src/app/dashboard/page.tsx` — add "Ready to Start" status display
-20. `src/components/dashboard/CircleCard.tsx` — handle PENDING+all-joined state
-
-**Grep and replace: em dashes**
-21. All `.tsx` / `.ts` files containing `—` — replace with appropriate punctuation (comma, colon, period, or space)
+- [ ] `forge build` exits 0; `forge test` 52/52 pass
+- [ ] New contract deployed; address in all references; ABI has `getPayoutOrder`, `getPeriod`, `startCircle`, `joinCircle`
+- [ ] Creating a circle with 5 addresses: creator's wallet does NOT auto-fill slot 0
+- [ ] `(you)` appears only on the position whose address matches the connected wallet
+- [ ] PENDING circle periods show "Assigned when circle starts" (not zero addresses)
+- [ ] ACTIVE circle periods show correct recipients from on-chain `getPeriod` data
+- [ ] Generate Invite Link either succeeds or shows a useful, specific error message
+- [ ] `tsc --noEmit` exits 0; `next lint` exits 0
 
 ---
 
-### Build Sequence
-
-1. **Contract:** Update Solidity (enum, joinCircle, startCircle, daily schedule); update tests; run forge build + forge test; security review; Slither; redeploy to Arc Testnet
-2. **Update all contract references:** contract-metadata ABI, `src/lib/contract.ts`, `AGENTS.md`, anywhere the old address appears
-3. **Logo:** Copy uploaded image to `public/logo.png`; update Navbar and Hero
-4. **Images:** Update all Unsplash URLs to finance/savings-focused photos
-5. **Em dashes:** Grep every source file; replace all instances
-6. **Scroll animations:** Add `useScrollReveal` hook + `ScrollReveal` component; wrap landing page sections
-7. **Frequency selector:** Add Daily option; update all frequency labels throughout
-8. **Membership flow:** Remove approval UX; add startCircle() CTA; fix invite generation error handling
-9. **Lint + typecheck + build**
-
----
-
-### Done When
-
-- [ ] `Frequency.DAILY = 2` exists in contract and frontend; daily schedule computes `startTime + N*1day`
-- [ ] `joinCircle()` auto-approves pre-listed wallets; no separate approveMember call needed for normal join
-- [ ] `startCircle()` exists; creator can explicitly start when all joined; circle shows "Ready to Start" in UI
-- [ ] All 44+ Foundry tests pass (updated for new flow); new daily and auto-approve tests added
-- [ ] No em dashes remain in any user-facing string
-- [ ] Landing page uses finance/savings imagery; images load correctly
-- [ ] Scroll animations play on section entry; `prefers-reduced-motion` disables them
-- [ ] Adashe logo appears in Navbar and Hero; no "A" lettermark
-- [ ] Invite link generates successfully and surfaces errors clearly
-- [ ] `0 ESLint errors`, `0 TypeScript errors`, `bun run build` exits 0
-- [ ] New contract address documented in AGENTS.md and contract-metadata
-
----
-
-## Ready to build?
-
-Two important notes before you approve:
-
-**Enum order:** I am inserting `DAILY` as value `2` (not 0) to preserve `WEEKLY = 0` and `MONTHLY = 1`. Any circles created with the old contract keep working. The new contract will be at a new address anyway, so there is no migration concern.
-
-**`approveMember()` in the new flow:** The function will be kept in the contract (for safety and backward-compatibility) but will become a no-op if the member is already auto-approved. The UI will no longer show approval buttons for normal joins. The creator still calls `startCircle()` manually.
-
-**PIN step:** The PIN step in circle creation and the join verification will be preserved as-is — the PIN is still a useful app-level access control even though address eligibility is now enforced on-chain. I will not remove it unless you explicitly ask. Plan saved. Here is the complete plan as text — approve it to start building.
-
----
-
-## Implementation Plan: Adashe v5 — UI Improvements and Contract Upgrade
-
-### Summary
-
-Two layers of work: the Solidity contract gets three targeted additions (DAILY frequency, auto-approve on join, explicit `startCircle()`), then redeploys to Arc Testnet. The frontend gets updated imagery, scroll animations, em dash removal, logo integration, invite-link error fixing, daily frequency support, and the simplified membership UX that matches the new contract flow.
-
----
-
-### Contract changes (v5)
-
-| Change | Detail |
-|---|---|
-| `Frequency.DAILY = 2` | Inserted as value 2; `WEEKLY = 0` and `MONTHLY = 1` preserved |
-| `joinCircle()` auto-approve | Sets `joined = true` AND `approved = true` for pre-listed addresses |
-| `startCircle()` | New function; creator calls explicitly when all members joined; sets ACTIVE, startTime, period 0 |
-| Remove auto-activation from `approveMember()` | `approveMember()` kept for backward compat but no longer auto-starts |
-| Daily schedule | `periodIndex == 0` → `startTime`; `periodIndex > 0` → `startTime + periodIndex * 1 days` |
-| `createCircle()` validation | DAILY branch: weekday/anchorDay not required |
-
----
-
-### Frontend changes
-
-1. **Images** — replace 3 community Unsplash photos on landing with people handling money, making payments, planning finances together
-2. **Scroll animations** — `useScrollReveal` hook + `ScrollReveal` wrapper; CSS `opacity`/`translateY` transition triggered by `IntersectionObserver`; `prefers-reduced-motion` disables all animation
-3. **Em dashes** — grep and replace all `—` in every `.tsx`/`.ts` file
-4. **Daily frequency** — add to `CreateCircleForm` selector; update all frequency labels throughout
-5. **Membership UX** — remove approval buttons from `CreatorPanel`; add `startCircle()` CTA; show "Ready to Start" badge when all joined and circle PENDING
-6. **Invite fix** — `CreatorPanel.generateInvite` shows the actual server error message instead of a generic toast; validate `NEXT_PUBLIC_APP_URL` is set
-7. **Logo** — `public/logo.png` from uploaded image; replace "A" lettermark in `Navbar` and use in `Hero`
-
----
-
-### Build Sequence
-
-1. Contract: update Solidity, rebuild, update tests, security review, Slither, redeploy
-2. Update all contract references (ABI, `contract.ts`, `AGENTS.md`, env example)
-3. Save logo to `public/logo.png`; update `Navbar` and `Hero`
-4. Update Unsplash image URLs on landing page
-5. Grep and remove all em dashes
-6. Add `useScrollReveal` hook + `ScrollReveal` component; apply to landing sections
-7. Add `Frequency.DAILY = 2` to contract.ts; update `CreateCircleForm` and all frequency labels
-8. Update `CreatorPanel`: remove approval UI, add `startCircle()`, fix invite errors
-9. Update `MembersList`, `CircleCard`, join page for new flow
-10. Lint + typecheck + build
-
----
-
-### Done When
-
-- `Frequency.DAILY = 2` in contract and frontend; daily schedules compute correctly
-- `joinCircle()` auto-approves; no `approveMember()` needed in normal flow
-- `startCircle()` works; "Ready to Start" shown when all joined
-- 44+ Foundry tests pass including new daily/auto-approve/startCircle tests
-- No em dashes in any user-facing string
-- Finance/savings imagery on landing page
-- Scroll animations on section entry; reduced-motion respected
-- Adashe logo in Navbar and Hero
-- Invite errors surfaced clearly
-- `0 ESLint errors`, `0 TypeScript errors`, `bun run build` exits 0
-
-Switch to Build mode to start.
+Switch to Build mode to execute this. The redeployment will happen first since everything else depends on the correct ABI being in place.

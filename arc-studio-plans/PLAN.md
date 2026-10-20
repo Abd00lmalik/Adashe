@@ -1,3 +1,73 @@
+# Implementation Plan: Adashe v6 — Bug Fixes (Position Assignment, Period Recipients, Invite Link)
+
+> Supersedes v5 plan. All three bugs are rooted in the same underlying issue: the contract-metadata ABI is stale and missing several functions. Fix sequence: recompile → regenerate ABI → redeploy → fix frontend data reads → fix CreateCircleForm autofill → fix invite error surfacing.
+
+---
+
+## Root Cause Summary
+
+### Bug 1: Creator auto-inserted into Position 1
+`CreateCircleForm.tsx` line 52 initialises `payoutOrder` as `[address ?? '', ...]`, pre-filling the connected wallet into slot 0. Line 63 (`handleMemberCountChange`) re-fills slot 0 any time the member count changes. The Step 2 label hardcodes `i === 0 ? ' (you)' : ''`. These are UI-only bugs — the contract stores exactly what the frontend submits. Fix: remove both autofills; show `(you)` dynamically on whichever position contains the connected wallet.
+
+### Bug 2: All period recipients show 0x000...000
+`contracts/contract-metadata/AdasheCircle.json` (the ABI imported by the frontend) is missing `getPayoutOrder`, `getPeriod`, `getContribution`, `startCircle`, and `joinCircle`. These functions exist in `contracts/AdasheCircle.sol` but were never in the compiled artifact used at deployment, meaning the deployed bytecode also lacks them. Every `useReadContracts` call for `getPayoutOrder` / `getPeriod` fails silently and falls back to zero values. Fix: recompile with `forge build`, regenerate the ABI from `out/AdasheCircle.sol/AdasheCircle.json`, redeploy to Arc Testnet, update all address references.
+
+Additionally, for PENDING circles `_periods` is not yet initialized (initialization happens inside `startCircle()`), so `getPeriod` legitimately returns zeros until the circle is started. The frontend must detect the PENDING state and show a truthful "Assigned at circle start" placeholder instead of `0x000...000`.
+
+### Bug 3: "Failed to create invite" on every attempt
+The invite API route calls `db.invite.create(...)` via Prisma. Prisma reads `DATABASE_URL` from `schema.prisma`. The error is caught and rethrown as the generic message `"Failed to create invite"` — the real Prisma error (e.g., connection refused, unknown env var) is logged to the server console only and never shown in the UI. Fix: (a) ensure `DATABASE_URL` in Vercel points to the Supabase connection string, and (b) surface the actual error message in development and a meaningful non-generic message in production so the creator knows what to fix.
+
+---
+
+## Files to Change
+
+1. `contracts/AdasheCircle.sol` — no logic changes; recompile only to regenerate ABI with all getter functions
+2. `contracts/contract-metadata/AdasheCircle.json` — replace entire file with fresh artifact from `forge build` output; update `address` field to new deployment
+3. `src/lib/contract.ts` — update `CONTRACT_ADDRESS` constant to new deployment address
+4. `AGENTS.md` — update contract address and note v6 deployment
+5. `.env` / `.env.example` — document that `DATABASE_URL` must be the Supabase connection string (pooled mode for Vercel, direct URL for migrations)
+6. `src/components/create/CreateCircleForm.tsx` — remove autofill of slot 0 with connected wallet; change `(you)` label from hardcoded slot-0 to dynamic match against connected address
+7. `src/components/circle/PeriodTimeline.tsx` — handle PENDING circles: when `pd` is null (call failed or circle not started), show "Assigned at circle start" instead of `0x000...000`; keep existing display for ACTIVE/COMPLETED circles
+8. `src/components/circle/MembersList.tsx` — handle empty payoutOrder gracefully when `getPayoutOrder` returns failure; add a loading/pending state so the list never renders zero addresses
+9. `src/components/circle/CreatorPanel.tsx` — improve invite error: pass the server's actual `data.error` string to the toast; add a hint about `DATABASE_URL` only if the error string mentions a connection problem
+10. `src/app/api/circles/[circleId]/invite/route.ts` — in the catch block, log the full error and return a more specific message in development (`err.message`) vs production ("Invite creation failed. Check server logs.")
+
+---
+
+## Build Sequence
+
+1. **Recompile and redeploy contract** — `forge build` (no Solidity changes needed; this regenerates the ABI). Run `forge test` to confirm 52/52 pass. Deploy to Arc Testnet. Extract fresh ABI from `out/AdasheCircle.sol/AdasheCircle.json` and write it to `contracts/contract-metadata/AdasheCircle.json` with the new address.
+
+2. **Update contract address references** — `src/lib/contract.ts` hardcoded fallback address; `AGENTS.md`; `.env` `NEXT_PUBLIC_CONTRACT_ADDRESS`.
+
+3. **Fix Bug 1: CreateCircleForm autofill** — In `defaultForm`, `payoutOrder` must be `Array(5).fill('')`. In `handleMemberCountChange`, remove the `if (newOrder[0] === '' && address)` backfill. In Step 2 JSX, change the label from `i === 0 ? ' (you)' : ''` to a dynamic check: `sameAddress(form.payoutOrder[i], address ?? '') ? ' (you)' : ''`. Add a hint below the address inputs: "Your connected wallet: {address}" so the creator can see which address to copy into the correct slot.
+
+4. **Fix Bug 2: PeriodTimeline pending state** — When circle status is PENDING (status === 0) and `pd` is null, render "Assigned when circle starts" in place of the recipient `AddressDisplay`. Do not render `AddressDisplay` with an empty string. Check `isPending` from `circleRaw[9]` (the `status` field).
+
+5. **Fix Bug 2: MembersList empty payoutOrder** — When `payoutOrder` is empty (ABI call failed), show a skeleton + "Loading members..." rather than an empty list. After the fix is deployed and the ABI is correct, this will resolve naturally; the guard prevents rendering garbage in the meantime.
+
+6. **Fix Bug 3: Invite error surfacing** — In the API route catch block, differentiate dev vs prod. In `CreatorPanel.generateInvite`, display `data.error` verbatim in the toast (it is already done in the current code at line 75, but the server is throwing the generic message before it reaches that branch). The server-side fix is what matters: return a descriptive error string.
+
+7. **Run lint + typecheck** — `tsc --noEmit` and `next lint`. Fix any errors.
+
+8. **Update Forge tests** — Confirm 52/52 still pass after recompile (no logic changed).
+
+---
+
+## Done When
+
+- [ ] `forge build` exits 0; `forge test` 52/52 pass
+- [ ] New contract deployed to Arc Testnet; address updated everywhere
+- [ ] `getPayoutOrder`, `getPeriod`, `getContribution`, `startCircle`, `joinCircle` all present in `contract-metadata/AdasheCircle.json`
+- [ ] Creating a circle with 5 distinct addresses does not autofill the creator into slot 0
+- [ ] "You" label appears only on the position whose address matches the connected wallet
+- [ ] PENDING circles show "Assigned when circle starts" per period (not 0x000...000)
+- [ ] ACTIVE circles show correct recipient addresses from `getPeriod` on-chain data
+- [ ] Generate Invite Link succeeds and shows the actual error (not a generic message) on failure
+- [ ] `tsc --noEmit` exits 0; `next lint` exits 0
+
+---
+
 # Implementation Plan: Adashe v5 — UI Improvements and Contract Upgrade
 
 > Supersedes earlier full-app plan. Contract v4 is deployed; this plan upgrades it to v5 and applies the frontend improvements listed below.
