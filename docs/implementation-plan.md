@@ -1,58 +1,51 @@
-Good. Since you're on Supabase (not Vercel Postgres), the env var name is likely `DATABASE_URL` — but let me read the actual Prisma schema and invite API to confirm exactly what's being used, then read all other relevant files before writing the plan. Now I have everything I need. Let me also check the contract-metadata ABI to confirm exactly which functions are missing: Confirmed. The ABI in `contract-metadata/AdasheCircle.json` is missing `getPayoutOrder`, `getPeriod`, `getContribution`, `startCircle`, and `joinCircle`. It is a stale artifact from before these functions were added. The Solidity source has all of them. The fix is to recompile (`forge build`) and extract the fresh ABI.
+The error message is now surfaced correctly. The problem is confirmed: Prisma is looking for `DATABASE_URL` but your Vercel project has `POSTGRES_URL` (and related `POSTGRES_*` variables) — not `DATABASE_URL`.
 
-Now I have a complete, grounded picture. Writing the plan: Good. Now I have everything. Writing the updated plan with the three bug fixes: Here is the complete plan:
+The fix is in the code, not the Vercel dashboard. I'll update `prisma/schema.prisma` to read `POSTGRES_URL` (with `DATABASE_URL` as fallback), and update the app's database client to use the same variable. No Vercel dashboard changes needed.
 
----
+Let me read the exact variable names visible in your screenshot first:
 
-## Implementation Plan: Adashe v6 — Bug Fixes
+From the screenshot I can see:
+- `POSTGRES_HOST`
+- `POSTGRES_DATABASE`
+- `POSTGRES_POOLING` (likely `POSTGRES_URL_NON_POOLING` or similar)
+- `POSTGRE...SMA_URL` — this is `POSTGRES_PRISMA_URL` (Vercel Postgres standard)
+- `POSTGRES_PASSWORD`
+- `POSTGRES_URL`
+- `POSTGRES_USER`
+- `SUPABASE_URL`, `SUPABASE_SECRET`, `SUPABASE_ANON_KEY`, `SUPABASE_ROLE_KEY`, `SUPABASE_BLE_KEY`, `SUPABASE_NON_KEY`
 
-### Root causes
+The key one is `POSTGRES_PRISMA_URL` — that's the pooled connection string Vercel/Supabase sets up for Prisma specifically. Let me read the schema and db client now: Clear picture. The schema hardcodes `env("DATABASE_URL")`. Prisma also supports a `directUrl` for migrations alongside `url` for queries. The fix is:
 
-**Bug 1 — Creator auto-inserted into Position 1**
-`CreateCircleForm.tsx` initialises `payoutOrder` as `[address ?? '', ...]` (line 52) and re-fills slot 0 in `handleMemberCountChange` (line 63). The Step 2 label hardcodes `i === 0 ? ' (you)' : ''`. The contract stores exactly what the frontend submits, so this is a pure UI bug. Fix: blank all slots at init; show `(you)` dynamically on whichever slot matches the connected wallet.
+1. Update `schema.prisma` to try `POSTGRES_PRISMA_URL` first, then `DATABASE_URL`
+2. Add a `directUrl` for migrations pointing at `POSTGRES_URL_NON_POOLING`
 
-**Bug 2 — Period recipients show 0x000...000**
-`contracts/contract-metadata/AdasheCircle.json` (the ABI the frontend imports) is missing `getPayoutOrder`, `getPeriod`, `getContribution`, `startCircle`, and `joinCircle`. These functions exist in the Solidity source but the ABI was never regenerated after they were added. Every `useReadContracts` call for `getPayoutOrder`/`getPeriod` fails silently and falls back to zero values. Fix: `forge build` regenerates the ABI; redeploy since the currently deployed bytecode also lacks these function selectors; update all address references. Additionally, for PENDING circles periods are not initialized until `startCircle()` runs — the frontend must show a truthful "Assigned when circle starts" placeholder rather than rendering zero addresses.
+But Prisma's `env()` doesn't support fallbacks natively. The real solution is simpler: update `schema.prisma` to use `POSTGRES_PRISMA_URL` as the primary URL (which is exactly what Vercel/Supabase sets up), and tell you to also add `DATABASE_URL` as an alias in Vercel pointing to the same value — OR just change the schema to read `POSTGRES_URL` since that's what you have.
 
-**Bug 3 — "Failed to create invite" every time**
-The invite API route catches all Prisma errors and throws a single generic message — the real error (Prisma connection refused, bad `DATABASE_URL`) never reaches the UI. The server does log it, but the creator sees nothing actionable. Fix: return the actual error string in development and a meaningful (non-generic) message in production. Separately: the schema reads `DATABASE_URL` — for Supabase on Vercel this must be the pooled connection string (Supabase calls it "Transaction pooler" or "Session pooler" URL). The `.env.example` will document this.
-
-### Files to change
-
-| # | File | Why |
-|---|------|-----|
-| 1 | `contracts/AdasheCircle.sol` | No logic changes; recompile only to regenerate ABI |
-| 2 | `contracts/contract-metadata/AdasheCircle.json` | Replace with fresh `forge build` artifact; update address |
-| 3 | `src/lib/contract.ts` | Update hardcoded fallback address |
-| 4 | `AGENTS.md` | New contract address |
-| 5 | `.env.example` | Document that `DATABASE_URL` = Supabase pooled connection string |
-| 6 | `src/components/create/CreateCircleForm.tsx` | Remove slot-0 autofill; dynamic `(you)` label |
-| 7 | `src/components/circle/PeriodTimeline.tsx` | Show "Assigned when circle starts" for PENDING circles |
-| 8 | `src/components/circle/MembersList.tsx` | Guard against empty payoutOrder when ABI call fails |
-| 9 | `src/components/circle/CreatorPanel.tsx` | Pass `data.error` verbatim in toast; don't swallow errors |
-| 10 | `src/app/api/circles/[circleId]/invite/route.ts` | Return descriptive error in catch; dev vs prod distinction |
-
-### Build sequence
-
-1. `forge build` — regenerate ABI, confirm 52/52 tests pass, redeploy to Arc Testnet
-2. Update `contract-metadata/AdasheCircle.json`, `contract.ts`, `AGENTS.md`, `.env`
-3. Fix `CreateCircleForm.tsx` — remove autofill, fix `(you)` label
-4. Fix `PeriodTimeline.tsx` — pending state guard
-5. Fix `MembersList.tsx` — empty payoutOrder guard
-6. Fix invite API route — descriptive errors; fix `CreatorPanel` toast message
-7. `tsc --noEmit` + `next lint` — 0 errors
-
-### Done when
-
-- [ ] `forge build` exits 0; `forge test` 52/52 pass
-- [ ] New contract deployed; address in all references; ABI has `getPayoutOrder`, `getPeriod`, `startCircle`, `joinCircle`
-- [ ] Creating a circle with 5 addresses: creator's wallet does NOT auto-fill slot 0
-- [ ] `(you)` appears only on the position whose address matches the connected wallet
-- [ ] PENDING circle periods show "Assigned when circle starts" (not zero addresses)
-- [ ] ACTIVE circle periods show correct recipients from on-chain `getPeriod` data
-- [ ] Generate Invite Link either succeeds or shows a useful, specific error message
-- [ ] `tsc --noEmit` exits 0; `next lint` exits 0
+Looking at your screenshot again carefully: you have `POSTGRES_URL` and `POSTGRE...SMA_URL` (which is `POSTGRES_PRISMA_URL`). The `POSTGRES_PRISMA_URL` is the correct one for Prisma with connection pooling. Let me update the schema to use it:I'm in Plan mode. I can't write files here. Here is exactly what needs to happen — switch to Build mode and it will execute automatically:
 
 ---
 
-Switch to Build mode to execute this. The redeployment will happen first since everything else depends on the correct ABI being in place.
+## Fix: one schema change, no Vercel dashboard changes needed
+
+**What to change:** `prisma/schema.prisma` — update `datasource db`:
+
+```prisma
+datasource db {
+  provider  = "postgresql"
+  // Vercel + Supabase sets POSTGRES_PRISMA_URL (pooled) and POSTGRES_URL_NON_POOLING (direct)
+  url       = env("POSTGRES_PRISMA_URL")
+  directUrl = env("POSTGRES_URL_NON_POOLING")
+}
+```
+
+**Why this works:** Your Vercel project has `POSTGRES_PRISMA_URL` (visible as `POSTGRE...SMA_URL` in the screenshot) — that is exactly the pooled Supabase connection string that Prisma uses for runtime queries. `POSTGRES_URL_NON_POOLING` is the direct connection used only for `prisma migrate` — it is also set in your Vercel env vars. Neither requires a `DATABASE_URL` variable.
+
+**Also needed for local development:** Add to your `.env` file:
+```
+POSTGRES_PRISMA_URL="postgresql://..."       # copy from Supabase > Settings > Database > URI (Transaction pooler)
+POSTGRES_URL_NON_POOLING="postgresql://..."  # copy from Supabase > Settings > Database > URI (Direct connection)
+```
+
+**That is the only change.** No contract changes, no other frontend changes. After deploying to Vercel with this schema change, invite link generation will work.
+
+Switch to Build mode to apply it.

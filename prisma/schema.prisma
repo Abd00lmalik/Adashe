@@ -6,8 +6,13 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Vercel + Supabase integration sets these two variables automatically.
+  // POSTGRES_PRISMA_URL  — pooled connection, used for all runtime queries.
+  // POSTGRES_URL_NON_POOLING — direct connection, used only for prisma migrate.
+  // For local dev: set both in .env (see .env.example).
+  url       = env("POSTGRES_PRISMA_URL")
+  directUrl = env("POSTGRES_URL_NON_POOLING")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
