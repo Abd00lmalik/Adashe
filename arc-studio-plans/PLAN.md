@@ -1,4 +1,72 @@
-# Implementation Plan: Adashe Onchain — Full App
+# Implementation Plan: Adashe v5 — UI Improvements and Contract Upgrade
+
+> Supersedes earlier full-app plan. Contract v4 is deployed; this plan upgrades it to v5 and applies the frontend improvements listed below.
+
+---
+
+## Changes in this plan
+
+### Contract (v5)
+- Add `Frequency.DAILY = 2`; keep `WEEKLY = 0`, `MONTHLY = 1`
+- `joinCircle()` auto-approves the caller (pre-listed address) — no separate `approveMember()` needed for normal join
+- Add `startCircle()` — creator explicitly starts once all members joined; removes auto-activation from `approveMember()`
+- Add daily period deadline: `startTime + periodIndex * 1 days`
+- Update `createCircle()` validation for DAILY (no weekday/anchorDay required)
+- Update all tests; add daily, auto-approve, and startCircle tests; redeploy to Arc Testnet
+
+### Frontend
+1. Images — replace landing page Unsplash photos with finance/savings/community imagery
+2. Scroll animations — fade-in on section entry; respect `prefers-reduced-motion`
+3. Em dashes — remove all `—` throughout the app
+4. Membership flow — remove approval-step UX; add "Ready to Start" + startCircle() CTA
+5. Invite fix — surface errors clearly; fix `NEXT_PUBLIC_APP_URL` fallback
+6. Daily frequency — add Daily to frequency selector and all labels
+7. Logo — use uploaded `public/logo.png` in Navbar and Hero
+8. Circle start — manual only; creator calls startCircle() when ready
+
+---
+
+## Files to Change (v5 additions)
+
+- `contracts/AdasheCircle.sol` — enum, joinCircle, startCircle, daily schedule
+- `contracts/test/AdasheCircle.t.sol` — updated + new tests
+- `contracts/contract-metadata/AdasheCircle.json` — post-redeploy
+- `AGENTS.md` — new address, test count
+- `public/logo.png` — uploaded logo asset
+- `src/lib/contract.ts` — DAILY enum, startCircle label, frequency helpers
+- `src/components/layout/Navbar.tsx` — logo image
+- `src/components/landing/Hero.tsx` — new image, logo, no em dashes
+- `src/app/page.tsx` — new images, em dashes, scroll animations
+- `src/components/landing/HowItWorks.tsx` — scroll animation, em dashes
+- `src/components/landing/SampleCircle.tsx` — em dashes
+- `src/hooks/useScrollReveal.ts` — new IntersectionObserver hook
+- `src/components/ui/ScrollReveal.tsx` — new wrapper component
+- `src/components/create/CreateCircleForm.tsx` — Daily option, updated flow text
+- `src/components/circle/CreatorPanel.tsx` — startCircle CTA, invite error fix, remove approval UI
+- `src/components/circle/CircleHeader.tsx` — daily label, em dashes
+- `src/components/circle/MembersList.tsx` — em dashes, auto-approved display
+- `src/app/join/[token]/page.tsx` — remove "pending approval" text
+- `src/components/dashboard/CircleCard.tsx` — "Ready to Start" state
+
+---
+
+## Done When (v5)
+
+- [ ] Frequency.DAILY = 2 in contract + frontend; daily deadlines correct
+- [ ] joinCircle() auto-approves; no approveMember() needed in normal flow
+- [ ] startCircle() exists; creator starts manually; "Ready to Start" shown when all joined
+- [ ] 44+ Foundry tests pass; new daily + auto-approve + startCircle tests added
+- [ ] No em dashes in any user-facing string
+- [ ] Landing page uses finance/savings imagery
+- [ ] Scroll animations on section entry; reduced-motion respected
+- [ ] Adashe logo in Navbar and Hero
+- [ ] Invite link generates + errors surfaced clearly
+- [ ] 0 ESLint errors, 0 TypeScript errors, bun run build exits 0
+- [ ] New contract address in AGENTS.md and contract-metadata
+
+---
+
+# Implementation Plan: Adashe Onchain — Full App (original, preserved for reference)
 
 ## Summary
 A private, invitation-based rotating savings app for groups of 2–12 people using USDC on Arc Testnet. The contract (v4 at `0xcd7c871f4d0ce61ef2c90f12d2b0384299134784`) is authoritative for all money; the Next.js backend handles invites, PIN hashing, sessions, and in-app notifications only.

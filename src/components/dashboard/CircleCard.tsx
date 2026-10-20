@@ -35,7 +35,7 @@ export function CircleCard({ circleId }: CircleCardProps) {
   if (!circleData) {
     return (
       <div className="card p-5 text-sm text-muted">
-        Circle #{circleId.toString()} — not found
+        Circle #{circleId.toString()}: not found
       </div>
     )
   }
@@ -98,7 +98,7 @@ export function CircleCard({ circleId }: CircleCardProps) {
         {hasDebt && (
           <div className="mt-4 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            You have outstanding debt — payout blocked
+            You have outstanding debt. Payout blocked.
           </div>
         )}
 

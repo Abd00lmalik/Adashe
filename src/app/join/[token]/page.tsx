@@ -46,7 +46,7 @@ export default function JoinPage() {
       }
       setCircleId(data.circleId)
     } catch {
-      setVerifyError('Network error — please try again.')
+      setVerifyError('Network error. Please try again.')
     } finally {
       setVerifying(false)
     }
@@ -108,7 +108,8 @@ export default function JoinPage() {
                   PIN verified. Circle #{circleId} found.
                 </div>
                 <p className="text-sm text-muted text-pretty">
-                  Click below to submit your join request. The creator must approve you before the circle activates.
+                  Click below to join the circle. You are pre-approved automatically once you join.
+                  The creator will start the circle once all members have joined.
                 </p>
                 {txState === 'idle' && (
                   <Button className="w-full" onClick={handleJoin}>
@@ -133,10 +134,10 @@ export default function JoinPage() {
                 {txState === 'success' && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-sm text-success">
-                      <CheckCircle2 className="h-4 w-4" /> Join request submitted!
+                      <CheckCircle2 className="h-4 w-4" /> You have joined the circle!
                     </div>
                     <p className="text-xs text-muted text-pretty">
-                      Wait for the creator to approve your membership. The circle activates when all members are approved.
+                      The creator will start the circle once all members have joined. You will be able to contribute immediately after.
                     </p>
                     <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard')}>
                       Go to dashboard

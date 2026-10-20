@@ -99,7 +99,7 @@ export function UsdcApproveAndAction({
         onAction={handleApprove}
         idleLabel={`Approve ${formatUnits(amount, USDC_DECIMALS)} USDC`}
         signingLabel="Approving…"
-        successLabel="Approved — ready for step 2"
+        successLabel="Approved: ready for step 2"
         disabled={isConfirming}
       />
       {(approveTxState.status === 'success') && (

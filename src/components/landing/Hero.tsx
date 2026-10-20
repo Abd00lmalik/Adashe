@@ -14,8 +14,8 @@ export function Hero() {
       {/* Background image */}
       <div className="absolute inset-0 z-0">
         <Image
-          src="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=1600&q=80&auto=format&fit=crop"
-          alt="People planning and saving together at a table with notebooks and coins"
+          src="https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=1600&q=80&auto=format&fit=crop"
+          alt="Hands exchanging cash and making a payment, representing trusted financial transactions"
           fill
           className="object-cover object-center"
           priority
@@ -30,7 +30,7 @@ export function Hero() {
         <div className="max-w-xl">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white/90 mb-5 backdrop-blur-sm">
             <ShieldCheck className="h-3.5 w-3.5 text-terra-300 shrink-0" />
-            Smart contract–enforced savings on Arc Testnet
+            Smart contract enforced savings on Arc Testnet
           </span>
 
           <h1 className="font-display font-bold text-white text-3xl sm:text-5xl lg:text-6xl leading-tight tracking-tighter text-balance mb-5">
@@ -41,7 +41,7 @@ export function Hero() {
 
           <p className="text-white/80 text-base sm:text-xl text-pretty mb-7 max-w-lg">
             Adashe brings the rotating savings tradition onchain. Your group commits, contributes, 
-            and each member receives their turn — governed by smart contract, not promises.
+            and each member receives their turn, governed by smart contract, not promises.
           </p>
 
           {/* CTA buttons — full-width on mobile, auto on sm+ */}

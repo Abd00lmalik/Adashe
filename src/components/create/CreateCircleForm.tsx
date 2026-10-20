@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import { useRouter } from 'next/navigation'
 import { keccak256, toHex, decodeEventLog } from 'viem'
-import { adasheContract, CONTRACT_ABI, Frequency, WEEKDAY_LABELS } from '@/lib/contract'
+import { adasheContract, CONTRACT_ABI, Frequency, WEEKDAY_LABELS, frequencyLabel } from '@/lib/contract'
 import { parseUsdc } from '@/lib/usdc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -231,13 +231,17 @@ export function CreateCircleForm() {
             <div className="space-y-4">
               <div>
                 <Label>Contribution frequency</Label>
-                <div className="flex gap-3 mt-1.5">
-                  {['Weekly', 'Monthly'].map((label, i) => (
+                <div className="flex gap-2 mt-1.5">
+                  {[
+                    { label: 'Weekly', value: Frequency.WEEKLY },
+                    { label: 'Monthly', value: Frequency.MONTHLY },
+                    { label: 'Daily', value: Frequency.DAILY },
+                  ].map(({ label, value }) => (
                     <button
                       key={label}
-                      onClick={() => setForm((f) => ({ ...f, frequency: i }))}
+                      onClick={() => setForm((f) => ({ ...f, frequency: value }))}
                       className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-colors ${
-                        form.frequency === i
+                        form.frequency === value
                           ? 'bg-forest-500 text-white border-forest-500'
                           : 'border-ivory-300 text-muted hover:border-forest-300'
                       }`}
@@ -247,7 +251,11 @@ export function CreateCircleForm() {
                   ))}
                 </div>
               </div>
-              {form.frequency === Frequency.WEEKLY ? (
+              {form.frequency === Frequency.DAILY ? (
+                <div className="rounded-xl bg-forest-50 border border-forest-200 p-3 text-sm text-forest-700">
+                  Daily circles require a contribution every day. Period 0 is due immediately at start; each subsequent period is due one day later.
+                </div>
+              ) : form.frequency === Frequency.WEEKLY ? (
                 <div>
                   <Label>Recurring weekday</Label>
                   <Select
@@ -267,7 +275,7 @@ export function CreateCircleForm() {
                     Period 0 deadline is immediately at circle start. Later periods fall on this weekday.
                   </p>
                 </div>
-              ) : (
+              ) : form.frequency === Frequency.MONTHLY ? (
                 <div>
                   <Label htmlFor="anchorDay">Monthly anchor day (1–31)</Label>
                   <Input
@@ -283,7 +291,7 @@ export function CreateCircleForm() {
                     If the anchor day doesn&apos;t exist in a month (e.g. 31 in April), the last day of that month is used.
                   </p>
                 </div>
-              )}
+              ) : null}
             </div>
           )}
 
@@ -365,9 +373,11 @@ export function CreateCircleForm() {
                   ['Members', form.memberCount.toString()],
                   ['Frequency', form.frequency === Frequency.WEEKLY
                     ? `Weekly (${WEEKDAY_LABELS[form.weekday]})`
-                    : `Monthly (day ${form.anchorDay})`],
-                  ['Gross payout', `${form.contributionAmountStr ? (parseFloat(form.contributionAmountStr) * (form.memberCount - 1)).toFixed(2) : '—'} USDC`],
-                  ['Net payout (approx)', `${form.contributionAmountStr ? (parseFloat(form.contributionAmountStr) * (form.memberCount - 2)).toFixed(2) : '—'} USDC`],
+                    : form.frequency === Frequency.MONTHLY
+                    ? `Monthly (day ${form.anchorDay})`
+                    : 'Daily'],
+                  ['Gross payout', `${form.contributionAmountStr ? (parseFloat(form.contributionAmountStr) * (form.memberCount - 1)).toFixed(2) : 'n/a'} USDC`],
+                  ['Net payout (approx)', `${form.contributionAmountStr ? (parseFloat(form.contributionAmountStr) * (form.memberCount - 2)).toFixed(2) : 'n/a'} USDC`],
                 ].map(([label, val]) => (
                   <div key={label} className="flex flex-wrap justify-between gap-x-4 gap-y-0.5">
                     <span className="text-muted shrink-0">{label}</span>
@@ -376,8 +386,8 @@ export function CreateCircleForm() {
                 ))}
               </div>
               <div className="rounded-xl bg-forest-50 p-4 text-xs text-forest-400 text-pretty">
-                Once created, the circle&apos;s terms cannot be changed. It activates automatically when all 
-                {form.memberCount} members join and are approved. The first contribution is due immediately at activation.
+                Once created, the circle&apos;s terms cannot be changed. All {form.memberCount} members must
+                join before you can start the circle. The first contribution is due immediately at start.
               </div>
 
               {txState === 'signing' && (

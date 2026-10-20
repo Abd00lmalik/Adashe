@@ -1,12 +1,12 @@
 import type { Address, Abi } from 'viem'
 
 // ABI sourced directly from the compiled artifact — do not edit manually.
-// Contract: AdasheCircle v4 at 0xcd7c871f4d0ce61ef2c90f12d2b0384299134784 on Arc Testnet
+// Contract: AdasheCircle v5 at 0xd98f33d01cf491526d2acdb5d34ddbae49248d54 on Arc Testnet
 import rawMetadata from '../../contracts/contract-metadata/AdasheCircle.json'
 
 export const CONTRACT_ADDRESS: Address =
   (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as Address) ??
-  '0xcd7c871f4d0ce61ef2c90f12d2b0384299134784'
+  '0xd98f33d01cf491526d2acdb5d34ddbae49248d54'
 
 // Extract ABI from the metadata file
 export const CONTRACT_ABI = rawMetadata.abi as Abi
@@ -21,6 +21,7 @@ export const adasheContract = {
 export enum Frequency {
   WEEKLY = 0,
   MONTHLY = 1,
+  DAILY = 2,
 }
 
 export enum CircleStatus {
@@ -52,6 +53,16 @@ export const CONTRIBUTION_STATUS_LABELS: Record<ContributionStatus, string> = {
 }
 
 export const WEEKDAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+export const FREQUENCY_LABELS: Record<Frequency, string> = {
+  [Frequency.WEEKLY]: 'Weekly',
+  [Frequency.MONTHLY]: 'Monthly',
+  [Frequency.DAILY]: 'Daily',
+}
+
+export function frequencyLabel(f: number): string {
+  return FREQUENCY_LABELS[f as Frequency] ?? 'Unknown'
+}
 
 // Explorer URL helper
 export const explorerTx = (hash: string) =>

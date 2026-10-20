@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0xcd7c871f4d0ce61ef2c90f12d2b0384299134784",
+  "contractAddress": "0xd98f33d01cf491526d2acdb5d34ddbae49248d54",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/AdasheCircle.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/AdasheCircle.sol/AdasheCircle.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xcd7c871f4d0ce61ef2c90f12d2b0384299134784"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xd98f33d01cf491526d2acdb5d34ddbae49248d54"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0xd98f33d01cf491526d2acdb5d34ddbae49248d54",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0xd98f33d01cf491526d2acdb5d34ddbae49248d54",
+      "txHash": "0x3a96b0c9132a76a137952e39c78298079836eb17082f0b7b446fc21c7579c41a",
+      "deployedAt": "2026-10-19T21:23:40.965Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0xcd7c871f4d0ce61ef2c90f12d2b0384299134784",
@@ -801,6 +808,19 @@
         },
         {
           "name": "debtPeriodIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "startCircle",
+      "inputs": [
+        {
+          "name": "circleId",
           "type": "uint256",
           "internalType": "uint256"
         }

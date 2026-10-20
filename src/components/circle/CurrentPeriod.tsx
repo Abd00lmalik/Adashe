@@ -149,7 +149,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Current Period — #{Number(currentPeriod) + 1}</CardTitle>
+        <CardTitle>Current Period #{Number(currentPeriod) + 1}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 xs:grid-cols-2 gap-3 text-sm">

@@ -20,7 +20,7 @@ export function SampleCircle() {
             </h2>
             <p className="text-white/70 text-pretty leading-relaxed mb-6">
               Each member contributes 250 USDC per period. The scheduled recipient collects the 
-              other four contributions — 1,000 USDC gross. One contribution amount is withheld as 
+              other four contributions: 1,000 USDC gross. One contribution amount is withheld as 
               their reserve for future obligations. The circle rotates until everyone has received.
             </p>
             <div className="space-y-2 text-sm">
@@ -55,7 +55,7 @@ export function SampleCircle() {
           <div className="card p-0 overflow-hidden">
             <div className="bg-forest-400 px-5 py-3">
               <p className="text-white/80 text-xs font-medium tracking-wider uppercase">
-                Payout rotation — illustrative
+                Payout rotation (illustrative)
               </p>
             </div>
             {/* Horizontal scroll on narrow screens */}

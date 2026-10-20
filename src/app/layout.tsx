@@ -4,14 +4,14 @@ import { Web3Provider } from '@/providers/Web3Provider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Adashe — Rotating Savings on Arc',
+  title: 'Adashe: Rotating Savings on Arc',
   description:
-    'Private, invitation-based rotating savings circles. Contribute together, receive your turn — enforced by smart contract on Arc.',
+    'Private, invitation-based rotating savings circles. Contribute together, receive your turn, enforced by smart contract on Arc.',
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'https://localhost:3000'),
   openGraph: {
-    title: 'Adashe — Rotating Savings on Arc',
+    title: 'Adashe: Rotating Savings on Arc',
     description:
-      'Private, invitation-based rotating savings circles — powered by USDC on Arc.',
+      'Private, invitation-based rotating savings circles, powered by USDC on Arc.',
     type: 'website',
   },
 }

@@ -38,7 +38,7 @@ export const wagmiConfig = createConfig(
     walletConnectProjectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? '',
     appName: 'Adashe',
     appDescription:
-      'Private, invitation-based rotating savings circles — powered by USDC on Arc.',
+      'Private, invitation-based rotating savings circles, powered by USDC on Arc.',
     appUrl: process.env.NEXT_PUBLIC_APP_URL ?? 'https://localhost:3000',
     appIcon: `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://localhost:3000'}/icon.png`,
   })

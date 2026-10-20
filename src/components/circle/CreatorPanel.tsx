@@ -71,10 +71,19 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
         body: JSON.stringify({ creatorAddress: address }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
+      if (!res.ok) {
+        const msg = data?.error ?? `Server error (${res.status}). Make sure DATABASE_URL and NEXT_PUBLIC_APP_URL are set.`
+        toast.error(msg)
+        return
+      }
+      if (!data.link) {
+        toast.error('Server returned no invite link. Check NEXT_PUBLIC_APP_URL is configured.')
+        return
+      }
       setInviteLink(data.link)
     } catch (err) {
-      toast.error('Failed to generate invite link')
+      const msg = err instanceof Error ? err.message : 'Network error'
+      toast.error(`Failed to generate invite link: ${msg}`)
     } finally {
       setGeneratingInvite(false)
     }
@@ -111,12 +120,12 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
       const hash = await writeContractAsync({
         address: adasheContract.address,
         abi: CONTRACT_ABI as Parameters<typeof writeContractAsync>[0]['abi'],
-        functionName: 'removeMember',
+        functionName: 'removePendingMember',
         args: [cid, memberAddr as `0x${string}`],
       })
       setRemoveTxStates((s) => ({ ...s, [memberAddr]: { status: 'confirming', hash } }))
       setRemoveTxStates((s) => ({ ...s, [memberAddr]: { status: 'success', hash } }))
-      toast.success(`Removed ${memberAddr.slice(0, 6)}…`)
+      toast.success(`Removed ${memberAddr.slice(0, 6)}...`)
       await refetch()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
@@ -134,12 +143,12 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
       const hash = await writeContractAsync({
         address: adasheContract.address,
         abi: CONTRACT_ABI as Parameters<typeof writeContractAsync>[0]['abi'],
-        functionName: 'replaceMember',
-        args: [cid, replaceOld as `0x${string}`, replaceNew as `0x${string}`, replaceReason],
+        functionName: 'approveReplacement',
+        args: [cid, replaceOld as `0x${string}`, replaceNew as `0x${string}`],
       })
       setReplaceTxState({ status: 'confirming', hash })
       setReplaceTxState({ status: 'success', hash })
-      toast.success('Member replaced')
+      toast.success('Replacement approved')
       setReplaceOld('')
       setReplaceNew('')
       setReplaceReason('')
@@ -168,13 +177,24 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
     }
   }
 
+  // Members who have NOT yet joined (joined=false, not removed)
   const pendingMembers = payoutOrder.filter((addr, i) => {
     const rec = memberData?.[i]?.status === 'success'
       ? (memberData[i].result as [boolean, boolean, bigint, bigint, bigint, string])
       : null
-    // joined=true but approved=false
-    return rec && rec[1] === true && rec[0] === false && BigInt(rec[4]) === 0n
+    if (!rec) return false
+    const joined = rec[1] as boolean
+    const removedAt = BigInt(rec[4] as bigint)
+    return !joined && removedAt === 0n
   })
+
+  // Members who have already joined
+  const joinedCount = payoutOrder.filter((addr, i) => {
+    const rec = memberData?.[i]?.status === 'success'
+      ? (memberData[i].result as [boolean, boolean, bigint, bigint, bigint, string])
+      : null
+    return rec && (rec[1] as boolean)
+  }).length
 
   return (
     <div className="space-y-4">
@@ -206,30 +226,27 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
         </CardContent>
       </Card>
 
-      {/* Pending approvals */}
+      {/* Members awaiting join */}
       {isPending && pendingMembers.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <UserCheck className="h-4 w-4 text-amber-500" />
-              Pending Approvals ({pendingMembers.length})
+              Awaiting Join ({joinedCount}/{memberCount})
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <p className="text-sm text-muted">
+              These members have not joined yet. Share the invite link so they can join. Once a member joins they are automatically approved.
+            </p>
             {pendingMembers.map((addr) => (
               <div key={addr} className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2 py-1">
                 <AddressDisplay address={addr} chars={4} />
                 <div className="flex gap-2 shrink-0">
                   <TxButton
-                    txState={approveTxStates[addr] ?? { status: 'idle' }}
-                    onAction={() => handleApprove(addr)}
-                    idleLabel="Approve"
-                    size="sm"
-                  />
-                  <TxButton
                     txState={removeTxStates[addr] ?? { status: 'idle' }}
                     onAction={() => handleRemove(addr)}
-                    idleLabel="Deny"
+                    idleLabel="Remove Slot"
                     size="sm"
                     variant="destructive"
                   />
@@ -242,20 +259,33 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
 
       {/* Start circle */}
       {isPending && (
-        <Card>
+        <Card className={pendingMembers.length === 0 ? 'border-forest-300 bg-forest-50/50' : undefined}>
           <CardHeader>
-            <CardTitle>Start Circle</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              {pendingMembers.length === 0 ? (
+                <span className="inline-flex items-center gap-1.5 text-forest-500">
+                  <UserCheck className="h-4 w-4" />
+                  Ready to Start
+                </span>
+              ) : 'Start Circle'}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted text-pretty">
-              Once all {memberCount} members are approved, you can start the circle.
-              The first contribution is due immediately.
-            </p>
+            {pendingMembers.length === 0 ? (
+              <p className="text-sm text-forest-600 text-pretty">
+                All {memberCount} members have joined. Start the circle to begin the first period. The first contribution is due immediately.
+              </p>
+            ) : (
+              <p className="text-sm text-muted text-pretty">
+                Waiting for {pendingMembers.length} more member{pendingMembers.length > 1 ? 's' : ''} to join ({joinedCount}/{memberCount} joined). Once all members have joined, you can start the circle.
+              </p>
+            )}
             <TxButton
               txState={startTxState}
               onAction={handleStartCircle}
               idleLabel="Start Circle"
-              variant="secondary"
+              variant={pendingMembers.length === 0 ? 'default' : 'secondary'}
+              disabled={pendingMembers.length > 0}
             />
           </CardContent>
         </Card>

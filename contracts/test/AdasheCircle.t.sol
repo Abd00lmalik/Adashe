@@ -142,6 +142,7 @@ contract AdasheCircleTest is Test {
 
     // ══════════════════════════════════════════════════════════════════════════
     // Helper: create + fully activate a 3-member weekly circle
+    // joinCircle now auto-approves; creator calls startCircle() to activate.
     // ══════════════════════════════════════════════════════════════════════════
     function _createAndActivate3() internal returns (uint256 cid) {
         address[] memory order = _payoutOrder3();
@@ -152,10 +153,8 @@ contract AdasheCircleTest is Test {
         vm.prank(alice);   circle.joinCircle(cid);
         vm.prank(bob);     circle.joinCircle(cid);
 
-        vm.prank(creator); circle.approveMember(cid, creator);
-        vm.prank(creator); circle.approveMember(cid, alice);
-        // Last approval activates the circle
-        vm.prank(creator); circle.approveMember(cid, bob);
+        // All members auto-approved on join; creator explicitly starts the circle.
+        vm.prank(creator); circle.startCircle(cid);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -180,10 +179,11 @@ contract AdasheCircleTest is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 1. createCircle – valid params; activates when all members join + approve
+    // 1. createCircle – valid params; activates when all members join (auto-
+    //    approved) and creator calls startCircle()
     // ══════════════════════════════════════════════════════════════════════════
 
-    function test_createCircle_ActivatesWhenAllJoinAndApprove() public {
+    function test_createCircle_ActivatesWhenAllJoinAndCreatorStarts() public {
         uint256 cid = _createAndActivate3();
 
         assertEq(_circleCreator(cid),                                creator);
@@ -198,17 +198,15 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("Test", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
+        // All three join (auto-approved on join)
         vm.prank(creator); circle.joinCircle(cid);
         vm.prank(alice);   circle.joinCircle(cid);
         vm.prank(bob);     circle.joinCircle(cid);
 
-        vm.prank(creator); circle.approveMember(cid, creator);
-        vm.prank(creator); circle.approveMember(cid, alice);
-
-        // Expect CircleActivated on the last approval
+        // CircleActivated is emitted by startCircle(), not by approveMember()
         vm.expectEmit(true, false, false, false, address(circle));
         emit AdasheCircle.CircleActivated(cid, block.timestamp, 0 /* any */);
-        vm.prank(creator); circle.approveMember(cid, bob);
+        vm.prank(creator); circle.startCircle(cid);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -633,10 +631,8 @@ contract AdasheCircleTest is Test {
         vm.prank(bob);     circle.joinCircle(cid);
         vm.prank(dan);     circle.joinCircle(cid);
 
-        vm.prank(creator); circle.approveMember(cid, creator);
-        vm.prank(creator); circle.approveMember(cid, alice);
-        vm.prank(creator); circle.approveMember(cid, bob);
-        vm.prank(creator); circle.approveMember(cid, dan);
+        // All auto-approved on join; creator starts the circle
+        vm.prank(creator); circle.startCircle(cid);
 
         // Period 0 (creator=recipient): alice, bob, dan contribute
         vm.prank(alice); circle.contribute(cid, 0);
@@ -1048,12 +1044,11 @@ contract AdasheCircleTest is Test {
         cid = circle.createCircle(
             "M", CONTRIBUTION, 3, AdasheCircle.Frequency.MONTHLY, 0, anchorDay, order, PIN
         );
+        // joinCircle auto-approves; startCircle activates
         vm.prank(creator); circle.joinCircle(cid);
         vm.prank(alice);   circle.joinCircle(cid);
         vm.prank(bob);     circle.joinCircle(cid);
-        vm.prank(creator); circle.approveMember(cid, creator);
-        vm.prank(creator); circle.approveMember(cid, alice);
-        vm.prank(creator); circle.approveMember(cid, bob);
+        vm.prank(creator); circle.startCircle(cid);
     }
 
     function test_monthlySchedule_Period0EqStartTime() public {
@@ -1120,7 +1115,7 @@ contract AdasheCircleTest is Test {
             usdc.approve(address(circle), type(uint256).max);
         }
 
-        // Create, join, approve
+        // Create, join (auto-approves), startCircle
         vm.prank(order[0]);
         uint256 cid = circle.createCircle(
             "Fuzz", contribution, memberCount,
@@ -1130,10 +1125,9 @@ contract AdasheCircleTest is Test {
             vm.prank(order[i]);
             circle.joinCircle(cid);
         }
-        for (uint8 i = 0; i < memberCount; i++) {
-            vm.prank(order[0]);
-            circle.approveMember(cid, order[i]);
-        }
+        // All members auto-approved; creator (order[0]) starts the circle
+        vm.prank(order[0]);
+        circle.startCircle(cid);
 
         // All non-recipients contribute in period 0
         address recipient0 = order[0];
@@ -1170,10 +1164,10 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T2", CONTRIBUTION, 2, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
+        // joinCircle auto-approves; startCircle activates
         vm.prank(creator); circle.joinCircle(cid);
         vm.prank(memberB); circle.joinCircle(cid);
-        vm.prank(creator); circle.approveMember(cid, creator);
-        vm.prank(creator); circle.approveMember(cid, memberB);
+        vm.prank(creator); circle.startCircle(cid);
 
         // memberB contributes; finalize
         vm.prank(memberB); circle.contribute(cid, 0);
@@ -1217,9 +1211,8 @@ contract AdasheCircleTest is Test {
         vm.prank(alice);   rCircle.joinCircle(cid);
         vm.prank(bob);     rCircle.joinCircle(cid);
 
-        vm.prank(creator); rCircle.approveMember(cid, creator);
-        vm.prank(creator); rCircle.approveMember(cid, alice);
-        vm.prank(creator); rCircle.approveMember(cid, bob);
+        // All members auto-approved on join; creator starts the circle
+        vm.prank(creator); rCircle.startCircle(cid);
 
         vm.prank(alice); rCircle.contribute(cid, 0);
         vm.prank(bob);   rCircle.contribute(cid, 0);
@@ -1437,10 +1430,8 @@ contract AdasheCircleTest is Test {
         vm.prank(bob);     circle.joinCircle(cid);
         vm.prank(dan);     circle.joinCircle(cid);
 
-        vm.prank(creator); circle.approveMember(cid, creator);
-        vm.prank(creator); circle.approveMember(cid, alice);
-        vm.prank(creator); circle.approveMember(cid, bob);
-        vm.prank(creator); circle.approveMember(cid, dan);
+        // All auto-approved on join; creator starts the circle
+        vm.prank(creator); circle.startCircle(cid);
 
         // Period 0 (creator=recipient): alice, bob, dan contribute
         vm.prank(alice); circle.contribute(cid, 0);
@@ -1507,5 +1498,170 @@ contract AdasheCircleTest is Test {
         (, , , bool released3Final, bool withheld3Final, , ) = circle.getPeriod(cid, 3);
         assertTrue(released3Final,  "period 3 should be released after full settle");
         assertFalse(withheld3Final, "period 3 should not be withheld after full settle");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 28. joinCircle auto-approves: after joinCircle, joined=true AND approved=true
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_joinCircle_AutoApproves() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        vm.prank(alice);
+        circle.joinCircle(cid);
+
+        MemberView memory mv = _getMember(cid, alice);
+        assertTrue(mv.joined,   "alice.joined should be true after joinCircle");
+        assertTrue(mv.approved, "alice.approved should be true after joinCircle (auto-approve)");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 29. startCircle reverts if not all members have joined
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_startCircle_RevertsIfNotAllJoined() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        // Only 2 of 3 join
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        // bob has NOT joined
+
+        vm.prank(creator);
+        vm.expectRevert(bytes("not all members joined"));
+        circle.startCircle(cid);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 30. startCircle reverts if caller is not the creator
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_startCircle_RevertsIfNotCreator() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+
+        vm.prank(alice);
+        vm.expectRevert(bytes("only creator"));
+        circle.startCircle(cid);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 31. startCircle reverts if circle already active
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_startCircle_RevertsIfAlreadyActive() public {
+        uint256 cid = _createAndActivate3(); // circle is now ACTIVE
+
+        vm.prank(creator);
+        vm.expectRevert(bytes("circle not pending"));
+        circle.startCircle(cid);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 32. startCircle activates circle: status == ACTIVE, startTime > 0
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_startCircle_ActivatesCircle() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+
+        assertEq(uint8(_circleStatus(cid)), uint8(AdasheCircle.CircleStatus.PENDING), "should be PENDING before start");
+
+        vm.prank(creator);
+        circle.startCircle(cid);
+
+        assertEq(uint8(_circleStatus(cid)), uint8(AdasheCircle.CircleStatus.ACTIVE), "should be ACTIVE after start");
+        assertGt(_circleStartTime(cid), 0, "startTime should be > 0 after start");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 33. Daily schedule: period 1 deadline == startTime + 1 days
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_dailySchedule_periodDeadlines() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        // Frequency.DAILY == value 2
+        uint256 cid = circle.createCircle(
+            "Daily", CONTRIBUTION, 3,
+            AdasheCircle.Frequency.DAILY,
+            0,  // weekday (unused for daily)
+            1,  // anchorDay (unused for daily)
+            order, PIN
+        );
+
+        vm.prank(creator); circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        uint256 startTime = _circleStartTime(cid);
+
+        // Period 0 deadline == startTime
+        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        assertEq(dl0, startTime, "period 0 deadline should equal startTime for daily");
+
+        // Finalize period 0 to initialize period 1
+        vm.prank(alice); circle.contribute(cid, 0);
+        vm.prank(bob);   circle.contribute(cid, 0);
+        vm.warp(dl0 + GRACE_PERIOD + 1);
+        circle.finalizePeriod(cid);
+
+        // Period 1 deadline == startTime + 1 days
+        (, uint256 dl1, , , , , ) = circle.getPeriod(cid, 1);
+        assertEq(dl1, startTime + 1 days, "period 1 deadline should be startTime + 1 day for daily");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 34. approveMember is idempotent: calling it after auto-approve doesn't revert
+    //     and member stays approved
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_approveMember_IsIdempotent() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        vm.prank(alice);
+        circle.joinCircle(cid); // auto-approves alice
+
+        MemberView memory mvBefore = _getMember(cid, alice);
+        assertTrue(mvBefore.approved, "alice already approved via joinCircle");
+
+        // Calling approveMember again on an already-approved member should NOT revert
+        vm.prank(creator);
+        circle.approveMember(cid, alice); // idempotent — returns early
+
+        MemberView memory mvAfter = _getMember(cid, alice);
+        assertTrue(mvAfter.approved, "alice still approved after redundant approveMember");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 35. joinCircle reverts if address not in payout order (new explicit test)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_joinCircle_RevertsIfNotInPayoutOrderExplicit() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        address outsider = makeAddr("outsider2");
+        vm.prank(outsider);
+        vm.expectRevert(bytes("not in payout order"));
+        circle.joinCircle(cid);
     }
 }

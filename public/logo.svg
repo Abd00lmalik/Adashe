@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 160" fill="none">
+  <!-- Beige background -->
+  <rect width="200" height="160" fill="#F5F0E6"/>
+
+  <!-- Three figures arranged around a central coin -->
+  <!-- Top figure (head + body arc) -->
+  <circle cx="100" cy="28" r="12" fill="#244B3C"/>
+  <path d="M76 58 Q100 44 124 58" stroke="#244B3C" stroke-width="14" stroke-linecap="round" fill="none"/>
+
+  <!-- Bottom-left figure -->
+  <circle cx="52" cy="90" r="12" fill="#244B3C"/>
+  <path d="M34 118 Q52 104 70 110" stroke="#244B3C" stroke-width="14" stroke-linecap="round" fill="none"/>
+
+  <!-- Bottom-right figure -->
+  <circle cx="148" cy="90" r="12" fill="#244B3C"/>
+  <path d="M166 118 Q148 104 130 110" stroke="#244B3C" stroke-width="14" stroke-linecap="round" fill="none"/>
+
+  <!-- Connecting arcs (leaf shapes at bottom) -->
+  <path d="M70 118 Q80 138 100 138 Q120 138 130 118" stroke="#244B3C" stroke-width="10" stroke-linecap="round" fill="none"/>
+
+  <!-- Left connecting arm -->
+  <path d="M76 70 Q60 82 62 98" stroke="#244B3C" stroke-width="10" stroke-linecap="round" fill="none"/>
+  <!-- Right connecting arm -->
+  <path d="M124 70 Q140 82 138 98" stroke="#244B3C" stroke-width="10" stroke-linecap="round" fill="none"/>
+
+  <!-- Central coin -->
+  <circle cx="100" cy="90" r="28" fill="#C77D55"/>
+  <!-- Coin inner ring -->
+  <circle cx="100" cy="90" r="22" fill="none" stroke="#F5F0E6" stroke-width="2.5"/>
+  <!-- Dollar sign -->
+  <text x="100" y="97" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="bold" fill="#F5F0E6">$</text>
+</svg>

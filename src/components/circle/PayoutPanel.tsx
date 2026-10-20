@@ -122,7 +122,7 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
           // Claimable
           return (
             <div key={periodIndex} className="space-y-3">
-              <p className="text-sm text-muted">Period {periodIndex + 1} — your payout is ready to claim.</p>
+              <p className="text-sm text-muted">Period {periodIndex + 1}: your payout is ready to claim.</p>
               <TxButton
                 txState={txState}
                 onAction={() => handleClaim(periodIndex)}

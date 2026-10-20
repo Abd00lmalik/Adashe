@@ -1,4 +1,5 @@
 import { UserPlus, HandCoins, RotateCcw } from 'lucide-react'
+import { ScrollReveal } from '@/components/ui/ScrollReveal'
 
 const steps = [
   {
@@ -6,7 +7,7 @@ const steps = [
     number: '01',
     title: 'Form your circle',
     description:
-      'A creator sets the group size, contribution amount, and schedule. Each member is invited privately — no public directory, no open joining.',
+      'A creator sets the group size, contribution amount, and schedule. Each member is invited privately. No public directory, no open joining.',
   },
   {
     icon: HandCoins,
@@ -20,7 +21,7 @@ const steps = [
     number: '03',
     title: 'Receive your turn',
     description:
-      'The recipient for that period claims their payout — minus a reserve withheld for their future obligations. The rotation continues until everyone has received.',
+      'The recipient for that period claims their payout (minus a reserve withheld for their future obligations). The rotation continues until everyone has received.',
   },
 ]
 
@@ -33,16 +34,17 @@ export function HowItWorks() {
             How Adashe works
           </h2>
           <p className="text-muted text-lg mt-3 max-w-2xl mx-auto text-pretty">
-            Rotating savings — also known as tontine, susu, hui, or chama — is a trusted practice 
+            Rotating savings (also known as tontine, susu, hui, or chama) is a trusted practice 
             in communities worldwide. Adashe brings it onchain.
           </p>
         </div>
 
         <div className="grid sm:grid-cols-3 gap-6">
-          {steps.map((step) => {
+          {steps.map((step, i) => {
             const Icon = step.icon
             return (
-              <div key={step.number} className="card p-6">
+              <ScrollReveal key={step.number} delay={i * 100}>
+              <div className="card p-6">
                 <div className="flex items-start gap-4">
                   <div className="rounded-xl bg-forest-500 p-2.5 shrink-0">
                     <Icon className="h-5 w-5 text-white" />
@@ -58,6 +60,7 @@ export function HowItWorks() {
                   {step.description}
                 </p>
               </div>
+              </ScrollReveal>
             )
           })}
         </div>

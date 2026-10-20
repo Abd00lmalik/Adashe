@@ -115,7 +115,7 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
               <div className="mt-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                 Payout withheld: <UsdcAmount amount={withheldAmount as bigint} size="sm" className="text-amber-700" />
-                — recipient has outstanding debt
+                Recipient has outstanding debt
               </div>
             )}
           </div>

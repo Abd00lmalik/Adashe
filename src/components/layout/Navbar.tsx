@@ -2,6 +2,7 @@
 
 import { ConnectKitButton } from 'connectkit'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { Bell, Plus, Menu, X } from 'lucide-react'
 import { useAccount } from 'wagmi'
@@ -37,9 +38,14 @@ export function Navbar() {
           <div className="flex h-14 items-center justify-between gap-2">
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2 group shrink-0">
-              <span className="h-8 w-8 rounded-lg bg-forest-500 flex items-center justify-center text-white font-display font-bold text-sm">
-                A
-              </span>
+              <Image
+                src="/logo.svg"
+                alt="Adashe logo"
+                width={32}
+                height={32}
+                className="rounded-lg"
+                priority
+              />
               <span className="font-display font-semibold text-forest-500 text-base tracking-tight hidden sm:block">
                 Adashe
               </span>

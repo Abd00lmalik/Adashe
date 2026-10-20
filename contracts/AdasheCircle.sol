@@ -19,7 +19,8 @@ contract AdasheCircle is ReentrancyGuard {
 
     enum Frequency {
         WEEKLY,
-        MONTHLY
+        MONTHLY,
+        DAILY
     }
 
     enum CircleStatus {
@@ -166,7 +167,7 @@ contract AdasheCircle is ReentrancyGuard {
 
         if (frequency == Frequency.WEEKLY) {
             require(weekday <= 6, "invalid weekday");
-        } else {
+        } else if (frequency == Frequency.MONTHLY) {
             require(anchorDay >= 1 && anchorDay <= 31, "invalid anchor day");
         }
 
@@ -208,7 +209,9 @@ contract AdasheCircle is ReentrancyGuard {
         require(!mr.joined, "already joined");
 
         mr.joined = true;
+        mr.approved = true;
         emit MemberJoined(circleId, msg.sender);
+        emit MemberApproved(circleId, msg.sender);
     }
 
     function approveMember(uint256 circleId, address member) external {
@@ -219,17 +222,24 @@ contract AdasheCircle is ReentrancyGuard {
 
         MemberRecord storage mr = memberRecords[circleId][member];
         require(mr.joined, "member not joined");
-        require(!mr.approved, "already approved");
 
+        if (mr.approved) return;
         mr.approved = true;
         emit MemberApproved(circleId, member);
+    }
 
-        if (_allApproved(circleId)) {
-            c.status = CircleStatus.ACTIVE;
-            c.startTime = block.timestamp;
-            _initializePeriod(circleId, 0);
-            emit CircleActivated(circleId, c.startTime, _periods[circleId][0].deadline);
-        }
+    /// @notice Creator explicitly starts the circle once all members have joined.
+    /// The circle must be PENDING and all members must have joined (and been auto-approved).
+    function startCircle(uint256 circleId) external {
+        Circle storage c = _requireCircle(circleId);
+        require(msg.sender == c.creator, "only creator");
+        require(c.status == CircleStatus.PENDING, "circle not pending");
+        require(_allApproved(circleId), "not all members joined");
+
+        c.status = CircleStatus.ACTIVE;
+        c.startTime = block.timestamp;
+        _initializePeriod(circleId, 0);
+        emit CircleActivated(circleId, c.startTime, _periods[circleId][0].deadline);
     }
 
     function removePendingMember(uint256 circleId, address member) external {
@@ -881,6 +891,10 @@ contract AdasheCircle is ReentrancyGuard {
         uint8 periodIndex
     ) internal pure returns (uint256) {
         if (periodIndex == 0) return startTime;
+
+        if (frequency == Frequency.DAILY) {
+            return startTime + uint256(periodIndex) * 1 days;
+        }
 
         if (frequency == Frequency.WEEKLY) {
             return _weekdayAnchor(startTime, weekday) + uint256(periodIndex) * 7 days;

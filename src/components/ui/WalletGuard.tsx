@@ -24,7 +24,7 @@ export function WalletGuard({
         <div>
           <p className="font-display font-semibold text-forest-500">{message}</p>
           <p className="text-sm text-muted mt-1">
-            Your wallet address is your identity — no account creation required.
+            Your wallet address is your identity. No account creation required.
           </p>
         </div>
         <ConnectKitButton />
