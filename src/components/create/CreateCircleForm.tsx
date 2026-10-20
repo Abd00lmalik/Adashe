@@ -122,13 +122,47 @@ export function CreateCircleForm() {
       setTxHash(hash)
       setTxState('confirming')
 
-      // Store PIN on backend (after tx submitted — PIN is not sensitive but should be server-side)
-      // We'll do this after confirmation in production; for now send optimistically
-      try {
-        // Extract circle ID from event after confirmation
-        // The circleId will be read from the receipt
-      } catch {
-        // Non-critical — circle still created
+      // Wait for the receipt so we can extract the circleId from the CircleCreated event
+      const { createPublicClient, http } = await import('viem')
+      const { defineChain } = await import('viem')
+      const arcTestnet = defineChain({
+        id: 5042002,
+        name: 'Arc Testnet',
+        nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+        rpcUrls: { default: { http: ['https://rpc.testnet.arc.io'] } },
+      })
+      const publicClient = createPublicClient({ chain: arcTestnet, transport: http('https://rpc.testnet.arc.io') })
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: hash as `0x${string}` })
+
+      // Decode CircleCreated event to get the circleId
+      let circleIdFromEvent: string | null = null
+      for (const log of receipt.logs) {
+        try {
+          const decoded = decodeEventLog({
+            abi: CONTRACT_ABI,
+            data: log.data,
+            topics: log.topics as [signature: `0x${string}`, ...args: `0x${string}`[]],
+          })
+          if (decoded.eventName === 'CircleCreated') {
+            circleIdFromEvent = String((decoded.args as { circleId: bigint }).circleId)
+            break
+          }
+        } catch { /* not our event */ }
+      }
+
+      // Store the hashed PIN on the backend so the invite verification can check it
+      if (circleIdFromEvent) {
+        setCreatedCircleId(circleIdFromEvent)
+        try {
+          await fetch(`/api/circles/${circleIdFromEvent}/pin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin: form.pin }),
+          })
+        } catch {
+          // Non-critical — circle is created; PIN storage failure shows a toast but doesn't block
+          toast.error('Circle created but PIN could not be saved. Members will not need a PIN to join.')
+        }
       }
 
       setTxState('success')

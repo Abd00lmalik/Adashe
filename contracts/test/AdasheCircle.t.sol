@@ -142,16 +142,17 @@ contract AdasheCircleTest is Test {
 
     // ══════════════════════════════════════════════════════════════════════════
     // Helper: create + fully activate a 3-member weekly circle
-    // joinCircle now auto-approves; creator calls startCircle() to activate.
+    // creator is in slot 0 of payoutOrder so createCircle() auto-joins them.
+    // Only alice and bob still need to call joinCircle().
     // ══════════════════════════════════════════════════════════════════════════
     function _createAndActivate3() internal returns (uint256 cid) {
         address[] memory order = _payoutOrder3();
         vm.prank(creator);
         cid = circle.createCircle("Test", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
-        vm.prank(bob);     circle.joinCircle(cid);
+        // creator is auto-joined by createCircle(); do NOT call joinCircle() for creator.
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
 
         // All members auto-approved on join; creator explicitly starts the circle.
         vm.prank(creator); circle.startCircle(cid);
@@ -198,10 +199,9 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("Test", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        // All three join (auto-approved on join)
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
-        vm.prank(bob);     circle.joinCircle(cid);
+        // creator is auto-joined by createCircle(); alice and bob still need to join.
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
 
         // CircleActivated is emitted by startCircle(), not by approveMember()
         vm.expectEmit(true, false, false, false, address(circle));
@@ -293,8 +293,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
+        // creator is auto-joined by createCircle(); only alice needs to join.
+        vm.prank(alice); circle.joinCircle(cid);
 
         vm.prank(alice);
         vm.expectRevert(bytes("only creator"));
@@ -626,10 +626,10 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("X", CONTRIBUTION, 4, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
-        vm.prank(bob);     circle.joinCircle(cid);
-        vm.prank(dan);     circle.joinCircle(cid);
+        // creator is auto-joined by createCircle(); alice, bob, dan still need to join.
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
+        vm.prank(dan);   circle.joinCircle(cid);
 
         // All auto-approved on join; creator starts the circle
         vm.prank(creator); circle.startCircle(cid);
@@ -940,8 +940,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
+        // creator is auto-joined; only alice needs to join.
+        vm.prank(alice); circle.joinCircle(cid);
 
         vm.prank(alice);
         vm.expectRevert(bytes("only creator"));
@@ -953,8 +953,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
+        // creator is auto-joined; only alice needs to join.
+        vm.prank(alice); circle.joinCircle(cid);
 
         vm.prank(creator); circle.approveMember(cid, creator);
         vm.prank(creator); circle.approveMember(cid, alice);
@@ -984,8 +984,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
+        // creator is auto-joined; only alice needs to join.
+        vm.prank(alice); circle.joinCircle(cid);
         vm.prank(creator); circle.approveMember(cid, creator);
         vm.prank(creator); circle.approveMember(cid, alice);
 
@@ -1044,10 +1044,9 @@ contract AdasheCircleTest is Test {
         cid = circle.createCircle(
             "M", CONTRIBUTION, 3, AdasheCircle.Frequency.MONTHLY, 0, anchorDay, order, PIN
         );
-        // joinCircle auto-approves; startCircle activates
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
-        vm.prank(bob);     circle.joinCircle(cid);
+        // creator is auto-joined by createCircle(); alice and bob still need to join.
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
         vm.prank(creator); circle.startCircle(cid);
     }
 
@@ -1115,13 +1114,14 @@ contract AdasheCircleTest is Test {
             usdc.approve(address(circle), type(uint256).max);
         }
 
-        // Create, join (auto-approves), startCircle
+        // Create — order[0] is the creator and is auto-joined by createCircle().
         vm.prank(order[0]);
         uint256 cid = circle.createCircle(
             "Fuzz", contribution, memberCount,
             AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN
         );
-        for (uint8 i = 0; i < memberCount; i++) {
+        // Skip i=0: order[0] (creator) was auto-joined; only order[1..n-1] need to join.
+        for (uint8 i = 1; i < memberCount; i++) {
             vm.prank(order[i]);
             circle.joinCircle(cid);
         }
@@ -1164,8 +1164,7 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T2", CONTRIBUTION, 2, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        // joinCircle auto-approves; startCircle activates
-        vm.prank(creator); circle.joinCircle(cid);
+        // creator is auto-joined by createCircle(); memberB still needs to join.
         vm.prank(memberB); circle.joinCircle(cid);
         vm.prank(creator); circle.startCircle(cid);
 
@@ -1207,9 +1206,9 @@ contract AdasheCircleTest is Test {
             "R", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN
         );
 
-        vm.prank(creator); rCircle.joinCircle(cid);
-        vm.prank(alice);   rCircle.joinCircle(cid);
-        vm.prank(bob);     rCircle.joinCircle(cid);
+        // creator is auto-joined by createCircle(); alice and bob still need to join.
+        vm.prank(alice); rCircle.joinCircle(cid);
+        vm.prank(bob);   rCircle.joinCircle(cid);
 
         // All members auto-approved on join; creator starts the circle
         vm.prank(creator); rCircle.startCircle(cid);
@@ -1425,10 +1424,10 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("X4", CONTRIBUTION, 4, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
-        vm.prank(bob);     circle.joinCircle(cid);
-        vm.prank(dan);     circle.joinCircle(cid);
+        // creator is auto-joined by createCircle(); alice, bob, dan still need to join.
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
+        vm.prank(dan);   circle.joinCircle(cid);
 
         // All auto-approved on join; creator starts the circle
         vm.prank(creator); circle.startCircle(cid);
@@ -1526,9 +1525,8 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        // Only 2 of 3 join
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
+        // creator is auto-joined; only alice joins — bob has NOT joined
+        vm.prank(alice); circle.joinCircle(cid);
         // bob has NOT joined
 
         vm.prank(creator);
@@ -1545,9 +1543,9 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
-        vm.prank(bob);     circle.joinCircle(cid);
+        // creator is auto-joined; alice and bob still need to join.
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
 
         vm.prank(alice);
         vm.expectRevert(bytes("only creator"));
@@ -1575,9 +1573,9 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
-        vm.prank(bob);     circle.joinCircle(cid);
+        // creator is auto-joined; alice and bob still need to join.
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
 
         assertEq(uint8(_circleStatus(cid)), uint8(AdasheCircle.CircleStatus.PENDING), "should be PENDING before start");
 
@@ -1604,9 +1602,9 @@ contract AdasheCircleTest is Test {
             order, PIN
         );
 
-        vm.prank(creator); circle.joinCircle(cid);
-        vm.prank(alice);   circle.joinCircle(cid);
-        vm.prank(bob);     circle.joinCircle(cid);
+        // creator is auto-joined; alice and bob still need to join.
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
         vm.prank(creator); circle.startCircle(cid);
 
         uint256 startTime = _circleStartTime(cid);
@@ -1662,6 +1660,136 @@ contract AdasheCircleTest is Test {
         address outsider = makeAddr("outsider2");
         vm.prank(outsider);
         vm.expectRevert(bytes("not in payout order"));
+        circle.joinCircle(cid);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 36. createCircle auto-joins creator when they appear in slot 0
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_createCircle_CreatorInPosition1_AutoJoined() public {
+        // creator in slot 0 → positionPlusOne == 1
+        address[] memory order = new address[](3);
+        order[0] = creator;
+        order[1] = alice;
+        order[2] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        MemberView memory mv = _getMember(cid, creator);
+        assertTrue(mv.joined,   "creator.joined should be true immediately after createCircle");
+        assertTrue(mv.approved, "creator.approved should be true immediately after createCircle");
+
+        // Verify position: creator is at index 0 in the payoutOrder array (positionPlusOne == 1)
+        address[] memory payoutOrder = circle.getPayoutOrder(cid);
+        assertEq(payoutOrder[0], creator, "creator should be at index 0 in payoutOrder");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 37. createCircle auto-joins creator when they appear in slot 2
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_createCircle_CreatorInPosition3_AutoJoined() public {
+        address dave = makeAddr("dave");
+        address eve  = makeAddr("eve");
+        _fund(dave, 10_000e6);
+        _fund(eve,  10_000e6);
+
+        // creator in slot 2 (index 2) → positionPlusOne == 3
+        address[] memory order = new address[](5);
+        order[0] = alice;
+        order[1] = bob;
+        order[2] = creator;
+        order[3] = dave;
+        order[4] = eve;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T5", CONTRIBUTION, 5, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        MemberView memory mv = _getMember(cid, creator);
+        assertTrue(mv.joined,   "creator.joined should be true immediately after createCircle");
+        assertTrue(mv.approved, "creator.approved should be true immediately after createCircle");
+
+        // Verify position: creator is at index 2 in the payoutOrder array (positionPlusOne == 3)
+        address[] memory payoutOrder = circle.getPayoutOrder(cid);
+        assertEq(payoutOrder[2], creator, "creator should be at index 2 in payoutOrder");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 38. createCircle does NOT auto-join creator when they are NOT in payoutOrder
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_createCircle_CreatorNotInOrder_NotAutoJoined() public {
+        address dave  = makeAddr("dave");
+        address eve   = makeAddr("eve");
+        address frank = makeAddr("frank");
+        _fund(dave,  10_000e6);
+        _fund(eve,   10_000e6);
+        _fund(frank, 10_000e6);
+
+        // creator is NOT in payoutOrder — 5 other addresses fill it
+        address[] memory order = new address[](5);
+        order[0] = alice;
+        order[1] = bob;
+        order[2] = dave;
+        order[3] = eve;
+        order[4] = frank;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("TNoCreator", CONTRIBUTION, 5, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        MemberView memory mv = _getMember(cid, creator);
+        assertFalse(mv.joined, "creator.joined should be false when not in payoutOrder");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 39. 5-member circle: creator auto-joined, 4 others join, startCircle succeeds
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_startCircle_CreatorAutoJoined_OthersJoin_Reaches5of5() public {
+        address dave = makeAddr("dave");
+        address eve  = makeAddr("eve");
+        _fund(dave, 10_000e6);
+        _fund(eve,  10_000e6);
+
+        // creator in slot 0 — auto-joined on createCircle
+        address[] memory order = new address[](5);
+        order[0] = creator;
+        order[1] = alice;
+        order[2] = bob;
+        order[3] = dave;
+        order[4] = eve;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T5", CONTRIBUTION, 5, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        // creator is already joined; the other 4 join now
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
+        vm.prank(dave);  circle.joinCircle(cid);
+        vm.prank(eve);   circle.joinCircle(cid);
+
+        // All 5 approved → startCircle should succeed
+        vm.prank(creator);
+        circle.startCircle(cid);
+
+        assertEq(uint8(_circleStatus(cid)), uint8(AdasheCircle.CircleStatus.ACTIVE),
+            "circle should be ACTIVE after all 5 members joined and creator started");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 40. joinCircle reverts with "already joined" when creator tries again
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_joinCircle_RevertsIfCreatorTriesAgain() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("T", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+
+        // creator was auto-joined during createCircle; calling joinCircle again must revert
+        vm.prank(creator);
+        vm.expectRevert(bytes("already joined"));
         circle.joinCircle(cid);
     }
 }

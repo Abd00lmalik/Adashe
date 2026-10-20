@@ -1,12 +1,12 @@
 import type { Address, Abi } from 'viem'
 
 // ABI sourced directly from the compiled artifact — do not edit manually.
-// Contract: AdasheCircle v5 at 0xd98f33d01cf491526d2acdb5d34ddbae49248d54 on Arc Testnet
+// Contract: AdasheCircle v6 at 0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef on Arc Testnet
 import rawMetadata from '../../contracts/contract-metadata/AdasheCircle.json'
 
 export const CONTRACT_ADDRESS: Address =
   (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as Address) ??
-  '0xd98f33d01cf491526d2acdb5d34ddbae49248d54'
+  '0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef'
 
 // Extract ABI from the metadata file
 export const CONTRACT_ABI = rawMetadata.abi as Abi

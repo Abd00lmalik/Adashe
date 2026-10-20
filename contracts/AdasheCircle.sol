@@ -197,6 +197,17 @@ contract AdasheCircle is ReentrancyGuard {
             _positionPlusOne[circleId][member] = i + 1;
         }
 
+        // Auto-join the creator if their wallet appears in the payout order.
+        // This means the creator does not need to call joinCircle() separately.
+        // Position assignment is determined by the address, never by who called createCircle().
+        if (isInPayoutOrder[circleId][msg.sender]) {
+            MemberRecord storage cr = memberRecords[circleId][msg.sender];
+            cr.joined = true;
+            cr.approved = true;
+            emit MemberJoined(circleId, msg.sender);
+            emit MemberApproved(circleId, msg.sender);
+        }
+
         emit CircleCreated(circleId, msg.sender, name);
     }
 

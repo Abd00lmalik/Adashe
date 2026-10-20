@@ -12,7 +12,7 @@ import { TxButton, type TxState } from '@/components/tx/TxButton'
 import { AddressDisplay } from '@/components/ui/AddressDisplay'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Share2, UserCheck, UserX, UserPlus, Copy, Check } from 'lucide-react'
+import { Share2, UserCheck, UserX, UserPlus, Copy, Check, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { sameAddress } from '@/lib/utils'
 import { useAccount } from 'wagmi'
@@ -27,6 +27,7 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
   const [copiedLink, setCopiedLink] = useState(false)
   const [inviteLink, setInviteLink] = useState('')
   const [generatingInvite, setGeneratingInvite] = useState(false)
+  const [inviteLoading, setInviteLoading] = useState(true)
   const [approveTxStates, setApproveTxStates] = useState<Record<string, TxState>>({})
   const [removeTxStates, setRemoveTxStates] = useState<Record<string, TxState>>({})
   const [replaceTxState, setReplaceTxState] = useState<TxState>({ status: 'idle' })
@@ -60,6 +61,32 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
   })
 
   const { writeContractAsync } = useWriteContract()
+
+  // On mount: check if a valid invite already exists for this circle so the
+  // link survives page refreshes without re-generating a duplicate.
+  useEffect(() => {
+    const loadExistingInvite = async () => {
+      setInviteLoading(true)
+      try {
+        const res = await fetch(`/api/circles/${cid.toString()}/invite`)
+        if (!res.ok) return
+        const data = await res.json()
+        // data is an array of invite objects; pick the first non-expired one
+        if (Array.isArray(data) && data.length > 0) {
+          const valid = data.find((inv: { link: string; expiresAt: string }) =>
+            new Date(inv.expiresAt) > new Date()
+          )
+          if (valid?.link) setInviteLink(valid.link)
+        }
+      } catch {
+        // Non-critical — the user can still generate a new link
+      } finally {
+        setInviteLoading(false)
+      }
+    }
+    loadExistingInvite()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cid.toString()])
 
   const generateInvite = async () => {
     if (!address) return
@@ -211,7 +238,11 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
             Generate an invite link to share with your members. 
             They&apos;ll need the circle PIN to proceed through the app.
           </p>
-          {inviteLink ? (
+          {inviteLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading invite…
+            </div>
+          ) : inviteLink ? (
             <div className="flex gap-2">
               <Input value={inviteLink} readOnly className="font-mono text-xs min-w-0" />
               <Button variant="outline" size="icon" onClick={copyLink} className="shrink-0 min-w-[44px] min-h-[44px]">
