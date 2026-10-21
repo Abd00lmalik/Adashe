@@ -13,8 +13,13 @@ const VerifySchema = z.object({
   wallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Invalid wallet address'),
 })
 
-// Resolve the Arc Testnet RPC URL from the proxy env vars when available,
-// otherwise fall back to the public endpoint stored in NEXT_PUBLIC_RPC_URL.
+// Resolve the RPC URL for Arc Testnet server-side reads.
+// Priority order:
+//   1. RPC_PROXY_* (Arc Studio internal proxy, set in sandbox .env)
+//   2. RPC_URL    (server-only Vercel env var — does not need NEXT_PUBLIC_ prefix)
+//   3. NEXT_PUBLIC_RPC_URL (present in process.env locally; on Vercel it is
+//      embedded at build time so it IS available at runtime in API routes too)
+// If none resolve, throws with an actionable message naming the missing variable.
 function getRpcUrl(): string {
   const proxyBase = process.env.RPC_PROXY_BASE_URL
   const proxyToken = process.env.RPC_PROXY_TOKEN
@@ -22,10 +27,14 @@ function getRpcUrl(): string {
   if (proxyBase && proxyToken && proxyChains.includes('Arc_Testnet')) {
     return `${proxyBase}/api/rpc/Arc_Testnet?_rpc_token=${proxyToken}`
   }
-  // Fall back to the public RPC URL configured at deploy time
-  const publicRpc = process.env.NEXT_PUBLIC_RPC_URL
-  if (!publicRpc) throw new Error('No RPC URL configured. Set NEXT_PUBLIC_RPC_URL or the RPC_PROXY_* variables.')
-  return publicRpc
+  // Server-only var (no NEXT_PUBLIC_ prefix) — add this to Vercel env vars
+  if (process.env.RPC_URL) return process.env.RPC_URL
+  // Build-time public var — available in process.env even in API routes on Vercel
+  if (process.env.NEXT_PUBLIC_RPC_URL) return process.env.NEXT_PUBLIC_RPC_URL
+  throw new Error(
+    'Server-side RPC not configured. Add RPC_URL to your Vercel environment variables ' +
+    '(value: the Arc Testnet RPC endpoint from your NEXT_PUBLIC_RPC_URL setting).'
+  )
 }
 
 // Build a viem public client for Arc Testnet for on-chain eligibility checks.
