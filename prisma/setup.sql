@@ -1,6 +1,7 @@
 -- Adashe Onchain — Supabase schema setup
--- Run this once in the Supabase SQL editor (Dashboard > SQL Editor > New query).
--- Safe to re-run: all statements use IF NOT EXISTS / OR REPLACE guards.
+-- Run this in the Supabase SQL editor (Dashboard > SQL Editor > New query).
+-- Safe to re-run: CREATE TABLE / INDEX statements use IF NOT EXISTS.
+-- The CirclePin block uses DROP + CREATE to apply the composite-key migration.
 
 -- 1. NotificationType enum
 -- NOTE: Supabase does not support "CREATE TYPE IF NOT EXISTS".
@@ -49,13 +50,23 @@ CREATE TABLE IF NOT EXISTS "PinAttempt" (
   "succeeded"   BOOLEAN     NOT NULL DEFAULT FALSE
 );
 
--- 4. CirclePin
-CREATE TABLE IF NOT EXISTS "CirclePin" (
-  "circleId"  TEXT        NOT NULL PRIMARY KEY,
-  "pinHash"   TEXT        NOT NULL,
-  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- 4. CirclePin — composite primary key (contractAddress, circleId)
+-- This prevents circleId=1 on a redeployed contract from colliding with
+-- circleId=1 on a previous deployment (both counters start at 1 after deploy).
+-- MIGRATION: drop the old single-key table and recreate with composite key.
+-- WARNING: this clears any existing CirclePin records. Those records were
+-- scoped to the wrong key anyway, so PINs will need to be re-stored by
+-- recreating each circle or by a manual INSERT with the correct contractAddress.
+DROP TABLE IF EXISTS "CirclePin";
+CREATE TABLE "CirclePin" (
+  "contractAddress" TEXT        NOT NULL,
+  "circleId"        TEXT        NOT NULL,
+  "pinHash"         TEXT        NOT NULL,
+  "createdAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY ("contractAddress", "circleId")
 );
+CREATE INDEX IF NOT EXISTS "CirclePin_addr_circle_idx" ON "CirclePin"("contractAddress", "circleId");
 
 -- 5. Notification
 CREATE TABLE IF NOT EXISTS "Notification" (

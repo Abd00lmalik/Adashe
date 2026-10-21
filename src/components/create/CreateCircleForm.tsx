@@ -151,19 +151,38 @@ export function CreateCircleForm() {
         } catch { /* not our event */ }
       }
 
-      // Store the hashed PIN on the backend so the invite verification can check it
+      // Store the hashed PIN on the backend so invite verification can check it.
+      // The API keys the record by (contractAddress, circleId) so redeploying the contract
+      // never causes circleId collisions between deployment generations.
       if (circleIdFromEvent) {
         setCreatedCircleId(circleIdFromEvent)
         try {
-          await fetch(`/api/circles/${circleIdFromEvent}/pin`, {
+          const pinRes = await fetch(`/api/circles/${circleIdFromEvent}/pin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pin: form.pin }),
           })
-        } catch {
-          // Non-critical — circle is created; PIN storage failure shows a toast but doesn't block
-          toast.error('Circle created but PIN could not be saved. Members will not need a PIN to join.')
+          if (!pinRes.ok) {
+            const pinData = await pinRes.json().catch(() => ({}))
+            // 'PIN already set' means an idempotent re-submission — safe to ignore.
+            if (pinData.reason !== 'PIN already set') {
+              toast.error('Circle created but PIN could not be saved. Ask members to contact you for the PIN if needed.')
+              console.error('PIN store response:', pinData)
+            }
+          }
+        } catch (pinErr) {
+          toast.error('Circle created but PIN could not be saved. Check your network connection.')
+          console.error('PIN store fetch error:', pinErr)
         }
+      } else {
+        // circleId not found in receipt — circle is on-chain but PIN won't be stored.
+        // Log enough context to diagnose: receipt logs, contract address, ABI event signature.
+        console.error(
+          'CircleCreated event not found in receipt. PIN not stored.',
+          'Receipt logs count:', receipt.logs.length,
+          'Contract address:', adasheContract.address,
+        )
+        toast.warning('Circle created. Could not store PIN automatically — members will need to ask you directly for the PIN.')
       }
 
       setTxState('success')

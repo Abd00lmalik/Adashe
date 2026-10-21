@@ -55,11 +55,17 @@ model PinAttempt {
 // ─────────────────────────────────────────────────────────────────────────────
 // Circle PIN hash — stored server-side, never onchain in plaintext
 // ─────────────────────────────────────────────────────────────────────────────
+// Keyed by (contractAddress, circleId) so circleId=1 on contract v7
+// cannot collide with circleId=1 on contract v6 (both start at 1 after each deploy).
 model CirclePin {
-  circleId  String   @id // onchain circle ID as string
-  pinHash   String   // bcrypt hash of PIN
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  contractAddress String   // deployed contract address, lowercase
+  circleId        String   // onchain circle ID as decimal string
+  pinHash         String   // bcrypt hash of PIN
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@id([contractAddress, circleId])
+  @@index([contractAddress, circleId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

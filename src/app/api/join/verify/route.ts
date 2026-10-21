@@ -95,9 +95,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Step 4: Retrieve the server-side PIN hash for this circle
+    // Step 4: Retrieve the server-side PIN hash for this (contract, circle) pair.
+    // The composite key prevents circleId=1 on a redeployed contract from matching
+    // the circleId=1 PIN record created under a previous deployment.
+    const contractAddress = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? '').toLowerCase()
     const circlePin = await db.circlePin.findUnique({
-      where: { circleId: invite.circleId },
+      where: { contractAddress_circleId: { contractAddress, circleId: invite.circleId } },
     })
 
     if (!circlePin) {

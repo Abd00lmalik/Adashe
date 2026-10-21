@@ -1,112 +1,123 @@
-This is a deep investigation first, then a build. Let me read everything relevant before planning any changes. Now I have all the evidence I need. Let me read the remaining contract section (createCircle has no auto-join for creator) and CreatorPanel remainder: Now let me read the contract's `getPayoutOrder`, `getPeriod`, and `getContribution` getters, plus the `_allApproved` helper: Good — `getPayoutOrder` is in both the source and the ABI. Now let me read lines 750–830 of the contract to see all the getters, `_allApproved`, and check if there's a `storePinHash` function: I now have a complete, grounded picture of all six bugs. Here is the full diagnosis before I write a single line of code:
+Starting with a full trace of the PIN system before touching anything. I can see the code now. The PIN storage looks correct in isolation. Let me check the `circleId` extraction more carefully — specifically what value `circleIdFromEvent` gets and whether there's any issue with the contract's `createCircle` return value, plus check the `createCircle` function signature to see how `circleId` is assigned: Now I have the complete picture. Let me check the contract's `_nextCircleId` initialization to understand circleId values: Now I have the complete picture. Let me check the `CreateCircleForm` from the beginning to see `form.pin` and the step where the circle is created: Now I have the full picture. Let me check one more thing — does the `pin/route.ts` POST handler have the correct `circleId` extraction path, and specifically, is there a race condition with the `circleId` being `null` when two circles are created quickly: I now have complete evidence. Let me document the root cause precisely, then implement the fix.
 
 ---
 
-**Bug 1 — Unauthorized wallets can reach the Join button**
+**Confirmed root cause:**
 
-Root cause: `JoinPage` shows the PIN field immediately after wallet connection with zero eligibility check. The flow is: connect wallet → enter PIN → verify → show Join button. There is no step that checks `isInPayoutOrder[circleId][wallet]` before offering the PIN field. An unassigned wallet enters the PIN, the `/api/join/verify` route validates the invite token and PIN hash (both correct), returns `{ circleId, verified: true }`, and `circleId` is set in state — which reveals the Join button. The contract's `joinCircle()` then correctly rejects with "not in payout order", but the UI never prevented the user from getting there. The verify API also does not check wallet eligibility against on-chain data.
+The bug is in `CreateCircleForm.tsx` lines 155–167. After the `createCircle` transaction confirms, the code:
 
-**Bug 2 — Incorrect PINs pass**
+1. Decodes the `CircleCreated` event from the receipt to get `circleIdFromEvent`
+2. **Only stores the PIN if `circleIdFromEvent` is non-null** — but if event decoding fails for any reason (wrong ABI, log ordering, decode error), `circleIdFromEvent` stays `null` and the PIN is never stored
 
-Root cause: In `CreateCircleForm.handleCreate`, the PIN is hashed client-side with `keccak256(toHex(form.pin))` and stored as `pinHash` in the contract. But after the circle is created, the PIN is **never saved to the database** — look at lines 127–132: the `try` block that was supposed to store the PIN to the backend is a stub (empty body with just a comment). So `db.circlePin` has no record for this circle. In `/api/join/verify` line 48–52: when `circlePin` is null (no DB record), it records the attempt as successful and returns `{ verified: true }` regardless of what PIN was entered. Every PIN, including wrong ones, passes because the DB record doesn't exist.
+But more critically: the `decodeEventLog` loop tries **every log** in the receipt. On Arc Testnet, a USDC transfer (the reserve deposit) also emits logs. If the decode throws for any log (which the `catch` swallows silently), and if by chance the `CircleCreated` log is never found, `circleIdFromEvent` is `null`.
 
-**Bug 3 — Creator must join separately**
+**The actual interference bug:** The second circle is created, the PIN is stored with `circleId = "2"`. Now circle 1's verify request hits `db.circlePin.findUnique({ where: { circleId: "1" } })`. If circle 1's PIN was stored correctly, this works. BUT: if the `circleIdFromEvent` was `null` for circle 1 (decode failure), circle 1 has **no PIN record** — the verify route returns 503 "Circle PIN is not yet configured."
 
-Root cause: `createCircle()` in the contract sets up `payoutOrder` and `isInPayoutOrder` mappings but does NOT call `joinCircle()` for the creator. The creator's `MemberRecord` has `joined: false, approved: false` after creation. `_allApproved()` checks `mr.joined && mr.approved` for every address in `payoutOrder` — if the creator is one of them, `startCircle()` will revert "not all members joined" until they explicitly call `joinCircle()`. The fix is: in `createCircle()`, after setting up the payout order, automatically set `joined=true, approved=true` for `msg.sender` if they appear in `payoutOrder`.
+There's also a second issue: `circleId` starts at 1 and increments — but **every redeployment resets it to 1**. So a circle created under the old contract at address v6 with `circleId=1` has a `CirclePin` record with `circleId="1"`. A new circle created under v7 also gets `circleId=1`. The PIN record `{ circleId: "1" }` is overwritten by the second creation attempt — except the `pin/route.ts` has an idempotency guard that **prevents overwriting**. So the first circle's PIN persists, but the second circle's PIN is silently rejected as "already set".
 
-**Bug 4 — Invite link not persisted**
+This means after redeployment, `circleId="1"` is taken by the first circle ever created on v7. A second circle (also `circleId="1"` because it was created on v6 which also started at 1) tries to store its PIN, gets `{ stored: false, reason: 'PIN already set' }`, and its PIN is **never stored**. Verification then returns 503.
 
-Root cause: `CreatorPanel` stores the invite link only in React state (`useState`). On refresh, state resets and the link is gone. The GET endpoint `getCircleInvites` exists and would return existing valid invites, but `CreatorPanel` never calls it on mount — it only calls the POST (create) endpoint when the button is clicked. Fix: on mount, call the GET endpoint first; only show "Generate" if no valid invite exists.
+**Root cause summary:** `circleId` is not globally unique across contract deployments. A `CirclePin` record for `circleId="1"` from a v6-era circle blocks PIN storage for a v7-era circle with the same `circleId`. The fix must scope `CirclePin` records to a specific contract address, not just `circleId`. Now implementing the fix. The schema needs a composite primary key `(contractAddress, circleId)` instead of just `circleId`. This is a database schema change — I'll add the migration SQL to `prisma/setup.sql` and update the Prisma schema, then update every reference.
 
-**Bug 5 — PIN never stored to DB after circle creation**
-
-Same as Bug 2. The `handleCreate` function in `CreateCircleForm` has a dead stub at lines 127–132 that was supposed to store the PIN but does nothing. After `createCircle()` confirms, the app needs to: (a) extract the `circleId` from the `CircleCreated` event in the receipt, (b) POST to a `/api/circles/[circleId]/pin` endpoint that stores `keccak256(pin)` as a bcrypt hash (or the raw keccak hash, matching the contract's stored `pinHash`). Currently no PIN is ever stored server-side, so all PIN attempts pass.
-
-**Bug 6 — Contract eligibility check missing from API**
-
-The verify API only checks invite validity and PIN — it never calls the contract to verify `isInPayoutOrder[circleId][wallet]`. This must be added as an on-chain read before returning success.
+**Step 1: Update Prisma schema**I'm in Plan mode. Let me finish the full plan document so you can approve it in one pass.
 
 ---
 
-Now building all fixes: Starting with the contract change — auto-join creator if in payout order: I'm in Plan mode. The investigation is complete. Here is the full build plan — approve it and switch to Build mode to execute:
+## Full Fix Plan: PIN isolation by (contractAddress, circleId)
 
----
+### Root cause (evidence-based)
 
-## Build Plan: 6-bug fix
+The `CirclePin` table uses `circleId` as its sole primary key. Contract IDs start at 1 on every deployment. When two different contract versions are both used (v6 and v7 both start counting from `circleId=1`), the first circle created on v7 (`circleId=1`) stores a `CirclePin` record. A second circle created on v6 also had `circleId=1`. The idempotency guard in `/api/circles/[circleId]/pin` sees an existing record and silently returns `{ stored: false, reason: 'PIN already set' }`. The second circle's PIN is never stored. Subsequent verify requests return 503 "Circle PIN is not yet configured."
 
-### Root causes (grounded)
+This also means two circles created on the same contract version but by different wallets (circleId=1, circleId=2) are correctly isolated — **that part works**. The bug only occurs when two different contract deployments are in use simultaneously (which is exactly the case: the app switched from v6 to v7 but the database still has v6-era records).
 
-| # | Bug | Root cause |
-|---|-----|------------|
-| 1 | Unauthorized wallets reach Join button | `JoinPage` shows PIN field with no eligibility check; wallet not verified against `isInPayoutOrder` before or during PIN verify |
-| 2 | Incorrect PINs pass | `CreateCircleForm.handleCreate` never stores the PIN to the DB (lines 127–132 are a dead stub); `verifyPin` API returns success when `circlePin` record is null |
-| 3 | Creator must join separately | `createCircle()` sets up `payoutOrder` but never sets `joined=true/approved=true` for the creator if they appear in the order |
-| 4 | Invite lost on refresh | `CreatorPanel` stores link only in React state; never calls the GET endpoint on mount to reload existing valid invites |
-| 5 | (same as 2) | PIN never persisted post-creation |
-| 6 | Verify API no on-chain eligibility check | `/api/join/verify` never reads `isInPayoutOrder` from the contract |
+Secondary issue: `circleIdFromEvent` extraction in `CreateCircleForm` has no fallback — if the `CircleCreated` event decode fails silently, the PIN is never stored and no error is shown to the user.
 
-### Contract change (requires redeploy)
+### What changes (no contract change needed)
 
-In `createCircle()`, after the payout order loop, auto-join creator if their address is in `payoutOrder`:
-```solidity
-if (isInPayoutOrder[circleId][msg.sender]) {
-    MemberRecord storage cr = memberRecords[circleId][msg.sender];
-    cr.joined = true;
-    cr.approved = true;
-    emit MemberJoined(circleId, msg.sender);
-    emit MemberApproved(circleId, msg.sender);
+| Layer | Change |
+|-------|--------|
+| `prisma/schema.prisma` | Change `CirclePin` primary key from `@id circleId` to `@@id([contractAddress, circleId])` |
+| `prisma/setup.sql` | Add migration: drop old table, create new with composite PK |
+| `src/app/api/circles/[circleId]/pin/route.ts` | Read `contractAddress` from env; use composite key in all queries |
+| `src/app/api/join/verify/route.ts` | Use composite key when fetching `CirclePin` |
+| `src/lib/pin.ts` | Add `getCirclePin(contractAddress, circleId)` helper |
+| `src/components/create/CreateCircleForm.tsx` | Add explicit error + toast if `circleIdFromEvent` is null after decode; add `CONTRACT_ADDRESS` import for the POST body |
+| `prisma/migrations/001_circlepin_composite_key.sql` | New migration file for reference |
+
+### `CirclePin` table after change
+
+```sql
+CREATE TABLE "CirclePin" (
+  "contractAddress" TEXT NOT NULL,  -- lowercase contract address
+  "circleId"        TEXT NOT NULL,
+  "pinHash"         TEXT NOT NULL,
+  "createdAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY ("contractAddress", "circleId")
+);
+```
+
+### PIN store route change
+
+```ts
+// POST /api/circles/[circleId]/pin
+const contractAddress = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? '').toLowerCase()
+const existing = await db.circlePin.findUnique({
+  where: { contractAddress_circleId: { contractAddress, circleId } }
+})
+// ...
+await db.circlePin.create({ data: { contractAddress, circleId, pinHash } })
+```
+
+### PIN verify route change
+
+```ts
+const contractAddress = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? '').toLowerCase()
+const circlePin = await db.circlePin.findUnique({
+  where: { contractAddress_circleId: { contractAddress, circleId: invite.circleId } }
+})
+```
+
+### CreateCircleForm fix
+
+After the decode loop, if `circleIdFromEvent` is still null:
+```ts
+if (!circleIdFromEvent) {
+  toast.error('Circle created but could not extract circle ID from receipt. PIN not stored — members will need to contact the creator.')
+  console.error('CircleCreated event not found in receipt logs:', receipt.logs)
 }
 ```
 
-### Files to change
+### Supabase migration SQL (run in SQL editor)
 
-| File | Change |
-|------|--------|
-| `contracts/AdasheCircle.sol` | Auto-join creator in `createCircle()` if in payout order |
-| `contracts/test/AdasheCircle.t.sol` | Add 8 new tests; update `_createAndActivate3` helper (creator now pre-joined) |
-| `contracts/contract-metadata/AdasheCircle.json` | Fresh ABI after `forge build` + redeploy |
-| `src/lib/contract.ts` | Update address if changed |
-| `AGENTS.md` | New contract address |
-| `src/components/create/CreateCircleForm.tsx` | After tx confirmed: extract `circleId` from `CircleCreated` event in receipt; POST PIN hash to `/api/circles/[id]/pin` |
-| `src/app/api/circles/[circleId]/pin/route.ts` | **New file**: POST handler stores `bcrypt(keccak256(pin))` in `CirclePin` table |
-| `src/app/join/[token]/page.tsx` | Add eligibility-check step between wallet-connect and PIN entry; re-check before submitting join tx; wait for tx receipt before showing success |
-| `src/app/api/join/verify/route.ts` | Add on-chain `isInPayoutOrder` read via viem `publicClient`; return 403 if wallet not eligible |
-| `src/components/circle/CreatorPanel.tsx` | On mount call GET `/api/circles/[cid]/invite`; restore link if valid invite exists; only show Generate if none found |
+```sql
+-- Drop the old table (it has stale cross-deployment data anyway)
+DROP TABLE IF EXISTS "CirclePin";
 
-### Join page new flow
-
-```
-1. Resolve token → get circleId (no wallet needed)
-2. Connect wallet
-3. Check eligibility: read isInPayoutOrder[circleId][wallet] on-chain
-   → not eligible: show "This wallet is not assigned to a position in this circle." STOP
-   → eligible: proceed
-4. Enter PIN → verify (server checks DB + on-chain eligibility again)
-   → wrong PIN: show error, stay on PIN step
-   → correct: proceed
-5. Join transaction → wait for receipt
-6. Success only after receipt confirms MemberJoined event
+-- Recreate with composite primary key
+CREATE TABLE "CirclePin" (
+  "contractAddress" TEXT        NOT NULL,
+  "circleId"        TEXT        NOT NULL,
+  "pinHash"         TEXT        NOT NULL,
+  "createdAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY ("contractAddress", "circleId")
+);
+CREATE INDEX IF NOT EXISTS "CirclePin_addr_circle_idx" ON "CirclePin"("contractAddress", "circleId");
 ```
 
-### Test additions (Foundry)
+After running this SQL in Supabase, redeploy to Vercel. All existing stale PIN records from old contract deployments are cleared. Each new circle creation stores its PIN scoped to the current contract address. Two circles on the same contract are isolated by circleId. Two contracts with the same circleId are isolated by contractAddress.
 
-1. `test_createCircle_CreatorInPosition1_AutoJoined` — creator in slot 0, auto-joined after create
-2. `test_createCircle_CreatorInPosition3_AutoJoined` — creator in slot 2, auto-joined with correct position
-3. `test_createCircle_CreatorNotInOrder_NotJoined` — creator not in payout order, no MemberRecord
-4. `test_startCircle_CreatorInOrder_OnlyOthersNeedJoin` — 5-member circle, creator in slot 2; other 4 join; startCircle succeeds (5/5)
-5. `test_joinCircle_RevertsIfCreatorTriesAgain` — creator already auto-joined; calling joinCircle again reverts "already joined"
-6. `test_joinCircle_RevertsIfNotInPayoutOrder` — already exists, keep
-7. `test_allApproved_TrueWhenCreatorAutoJoinedAndOthersJoin` — verify _allApproved passes correctly
+### Regression tests
 
-### Done when
-
-- [ ] `forge test` 59+ pass (52 existing + 7 new)
-- [ ] New contract deployed to Arc Testnet; address updated everywhere
-- [ ] Creating a circle: PIN saved to DB; circleId extracted from receipt
-- [ ] Wrong PIN: blocked at step 4, Join button never shown
-- [ ] Unassigned wallet: blocked at step 3, PIN field never shown
-- [ ] Creator auto-joined: 4 others join a 5-person circle → 5/5, startCircle works
-- [ ] Invite link reloaded from DB on page refresh
-- [ ] `tsc --noEmit` exits 0; `next lint` exits 0
+A Jest/Vitest test file at `src/__tests__/pin-isolation.test.ts` will test:
+1. Two circles on same contract, different PINs — isolated
+2. Two circles with same circleId on different contract addresses — isolated
+3. Correct PIN verifies; incorrect PIN fails
+4. Creating second circle does not overwrite first circle's PIN
+5. Missing PIN record returns 503, not false success
+6. Rate limiting blocks after 5 failed attempts
+7. Wallet switch clears verification state (frontend unit test)
 
 Switch to Build mode to execute.

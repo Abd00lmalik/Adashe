@@ -8,11 +8,24 @@ const StorePinSchema = z.object({
 })
 
 /**
+ * The active contract address, lowercased.
+ * Used as part of the composite primary key (contractAddress, circleId)
+ * so that the same circleId on two different contract deployments never collide.
+ * Both POST and verify routes must use the same value.
+ */
+function getContractAddress(): string {
+  const addr = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? ''
+  if (!addr) console.warn('NEXT_PUBLIC_CONTRACT_ADDRESS is not set — PIN records will be keyed to empty string')
+  return addr.toLowerCase()
+}
+
+/**
  * POST /api/circles/[circleId]/pin
  * Store a bcrypt hash of the circle PIN after circle creation.
- * Called server-side by the frontend after the CircleCreated tx is confirmed.
- * Idempotent: if a PIN already exists for this circle, it is NOT overwritten
- * (prevents any race or replay that could change the PIN after creation).
+ * Called by the frontend after the CircleCreated tx is confirmed.
+ * Idempotent per (contractAddress, circleId) pair: a PIN already set for THIS
+ * contract + circleId is not overwritten. A same circleId on a different
+ * contract deployment is stored separately.
  */
 export async function POST(
   request: NextRequest,
@@ -27,19 +40,22 @@ export async function POST(
 
     const { pin } = parsed.data
     const { circleId } = params
+    const contractAddress = getContractAddress()
 
     if (!circleId || isNaN(Number(circleId))) {
       return NextResponse.json({ error: 'Invalid circleId' }, { status: 400 })
     }
 
-    // Check if a PIN is already stored for this circle — never overwrite
-    const existing = await db.circlePin.findUnique({ where: { circleId } })
+    // Check if a PIN is already stored for this (contract, circle) pair — never overwrite.
+    const existing = await db.circlePin.findUnique({
+      where: { contractAddress_circleId: { contractAddress, circleId } },
+    })
     if (existing) {
       return NextResponse.json({ stored: false, reason: 'PIN already set' })
     }
 
     const pinHash = await hashPin(pin)
-    await db.circlePin.create({ data: { circleId, pinHash } })
+    await db.circlePin.create({ data: { contractAddress, circleId, pinHash } })
 
     return NextResponse.json({ stored: true })
   } catch (err) {
