@@ -8,6 +8,8 @@ import { AddressDisplay } from '@/components/ui/AddressDisplay'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDeadline, sameAddress } from '@/lib/utils'
+import { computeDeadline } from '@/lib/schedule'
+import { Frequency } from '@/lib/contract'
 import { CheckCircle2, Clock, AlertCircle } from 'lucide-react'
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
@@ -22,10 +24,11 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
   // circleRaw indices: 0=id, 1=creator, 2=name, 3=contributionAmount, 4=memberCount,
   // 5=frequency, 6=weekday, 7=anchorDay, 8=pinHash, 9=status, 10=startTime,
   // 11=currentPeriod, 12=reserveAmount, 13=gracePeriod
-  const [, , , , memberCount, , , , , status, , currentPeriod] = circleRaw as [
+  const [, , , , memberCount, frequency, weekday, anchorDay, , status, startTime, currentPeriod] = circleRaw as [
     bigint, string, string, bigint, number, number, number, number, string, number, bigint, number, bigint, bigint
   ]
   const isPendingCircle = (status as unknown as number) === 0 // CircleStatus.PENDING
+  const isActiveCircle  = (status as unknown as number) === 1 // CircleStatus.ACTIVE
 
   const periodContracts = Array.from({ length: memberCount }, (_, i) => ({
     ...adasheContract,
@@ -62,8 +65,6 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
         const payoutWithheld  = pd?.[4] ?? false
         const withheldAmount  = pd?.[5] ?? 0n
 
-        // A period is "uninitialized" when the circle is PENDING (startCircle not yet called)
-        // or when the on-chain call failed. In both cases the recipient is the zero address or ''.
         const recipientStr = recipient as string
         const hasRealRecipient =
           recipientStr !== '' &&
@@ -73,6 +74,19 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
         const isPast = i < Number(currentPeriod)
         const isFuture = i > Number(currentPeriod)
         const isRecipient = hasRealRecipient && sameAddress(recipientStr, address)
+
+        // For future periods in an ACTIVE circle that haven't been initialized yet,
+        // compute the expected deadline on the frontend using the same formula as the contract.
+        const isUninitializedFuture = isActiveCircle && isFuture && !hasRealRecipient
+        const expectedDeadlineSec = isUninitializedFuture && (startTime as bigint) > 0n
+          ? computeDeadline(
+              Number(startTime as bigint),
+              (frequency as unknown as number) as Frequency,
+              weekday as number,
+              anchorDay as number,
+              i,
+            )
+          : null
 
         return (
           <div
@@ -109,6 +123,8 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
                     </div>
                   ) : isPendingCircle ? (
                     <p className="text-xs text-muted mt-0.5 italic">Assigned when circle starts</p>
+                  ) : isUninitializedFuture ? (
+                    <p className="text-xs text-muted mt-0.5 italic">Opens after period {Number(currentPeriod) + 1} is finalized</p>
                   ) : null}
                 </div>
               </div>
@@ -118,16 +134,21 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
                 {(grossEntitlement as bigint) > 0n && (
                   <UsdcAmount amount={grossEntitlement as bigint} size="sm" />
                 )}
-                {(deadline as bigint) > 0n && (
+                {(deadline as bigint) > 0n ? (
                   <div className="flex items-center gap-1 mt-1 justify-end">
                     <Clock className="h-3 w-3 text-muted shrink-0" />
-                    {isCurrent || isFuture ? (
+                    {isCurrent ? (
                       <CountdownTimer deadline={deadline as bigint} className="text-xs" />
                     ) : (
                       <span className="text-xs text-muted">{formatDeadline(deadline as bigint)}</span>
                     )}
                   </div>
-                )}
+                ) : expectedDeadlineSec ? (
+                  <div className="flex items-center gap-1 mt-1 justify-end">
+                    <Clock className="h-3 w-3 text-muted shrink-0" />
+                    <span className="text-xs text-muted">~{formatDeadline(BigInt(expectedDeadlineSec))}</span>
+                  </div>
+                ) : null}
               </div>
             </div>
 

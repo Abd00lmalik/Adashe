@@ -12,6 +12,8 @@ import { UsdcApproveAndAction } from '@/components/tx/UsdcApproveAndAction'
 import { TxButton, type TxState } from '@/components/tx/TxButton'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDeadline, sameAddress, isExpired } from '@/lib/utils'
+import { isGraceExpired, GRACE_PERIOD_BY_FREQUENCY, graceExpiry } from '@/lib/schedule'
+import { Frequency } from '@/lib/contract'
 import { Clock, Users, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -22,7 +24,10 @@ interface CurrentPeriodProps {
 }
 
 export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
-  const [, , , contributionAmount, memberCount, , , , , status, , currentPeriod] = circleRaw as [
+  // indices: 0=id, 1=creator, 2=name, 3=contributionAmount, 4=memberCount,
+  // 5=frequency, 6=weekday, 7=anchorDay, 8=pinHash, 9=status,
+  // 10=startTime, 11=currentPeriod, 12=reserveAmount, 13=gracePeriod
+  const [, , , contributionAmount, memberCount, frequency, , , , status, , currentPeriod] = circleRaw as [
     bigint, string, string, bigint, number, number, number, number, string, number, bigint, number, bigint, bigint
   ]
 
@@ -93,13 +98,14 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   } | null
 
   const deadlinePast = isExpired(deadline as bigint)
+  // Grace period must have elapsed before finalization is allowed.
+  // Read frequency from circleRaw to pick the correct grace duration.
+  const circleFrequency = (frequency as unknown as number) as Frequency
+  const graceExpiredNow = isGraceExpired(Number(deadline as bigint), circleFrequency)
   const canContribute = address && !isRecipient && contribution?.status === 0 && contribution?.paidAmount === 0n && !deadlinePast
 
-  const canFinalize = (() => {
-    if (!deadlinePast) return false
-    if (!participants) return false
-    return (participants as string[]).every((p) => sameAddress(p, recipient as string) || true) // simplified; finalize checks deadlines onchain
-  })()
+  // Only show Finalize when the grace period has fully passed AND there are participants.
+  const canFinalize = graceExpiredNow && !!participants && (participants as string[]).length > 0
 
   const handleContribute = async () => {
     setContributeTxState({ status: 'signing' })
@@ -161,12 +167,17 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
             </div>
           </div>
           <div>
-            <p className="text-muted text-xs mb-1">Deadline</p>
+            <p className="text-muted text-xs mb-1">Contribution deadline</p>
             <div className="flex items-center gap-1">
               <Clock className="h-3.5 w-3.5 text-muted shrink-0" />
               <CountdownTimer deadline={deadline as bigint} />
             </div>
             <p className="text-xs text-muted mt-0.5">{formatDeadline(deadline as bigint)}</p>
+            {deadlinePast && !graceExpiredNow && (
+              <p className="text-xs text-amber-600 mt-0.5">
+                Grace ends: {formatDeadline(BigInt(graceExpiry(Number(deadline as bigint), circleFrequency)))}
+              </p>
+            )}
           </div>
         </div>
 
@@ -181,7 +192,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
           <div className="pt-2">
             <p className="text-xs text-muted mb-3">
               Approve USDC and contribute <strong>{String(contributionAmount as bigint / 1_000_000n)} USDC</strong> for this period.
-              A 10-day grace period applies after the deadline.
+              Grace period: {circleFrequency === Frequency.DAILY ? '12 hours' : circleFrequency === Frequency.WEEKLY ? '3 days' : '10 days'} after the deadline.
             </p>
             <UsdcApproveAndAction
               amount={contributionAmount as bigint}
@@ -192,10 +203,18 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
           </div>
         )}
 
-        {deadlinePast && (
+        {deadlinePast && !graceExpiredNow && (
+          <div className="pt-2 rounded-xl bg-amber-50 px-3 py-2">
+            <p className="text-xs text-amber-700">
+              Contribution deadline passed. Waiting for grace period to expire before finalization is available.
+            </p>
+          </div>
+        )}
+
+        {canFinalize && (
           <div className="pt-2">
             <p className="text-xs text-muted mb-2">
-              The contribution deadline has passed. Anyone can finalize this period once all grace periods expire.
+              Grace period expired. This period can now be finalized.
             </p>
             <TxButton
               txState={finalizeTxState}

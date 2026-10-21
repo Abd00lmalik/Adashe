@@ -10,7 +10,11 @@ contract AdasheCircle is ReentrancyGuard {
 
     uint8 public constant MIN_MEMBERS = 2;
     uint8 public constant MAX_MEMBERS = 12;
-    uint256 public constant GRACE_PERIOD = 240 hours;
+    uint256 public constant GRACE_PERIOD_DAILY   =  12 hours;
+    uint256 public constant GRACE_PERIOD_WEEKLY  =  72 hours;  // 3 days
+    uint256 public constant GRACE_PERIOD_MONTHLY = 240 hours;  // 10 days
+    // Alias kept so any reference to GRACE_PERIOD still compiles (used in tests/helpers).
+    uint256 public constant GRACE_PERIOD         = 240 hours;
     uint256 public constant MAX_EXTENSION = 30 days;
 
     IERC20 public immutable usdc;
@@ -248,7 +252,17 @@ contract AdasheCircle is ReentrancyGuard {
         require(_allApproved(circleId), "not all members joined");
 
         c.status = CircleStatus.ACTIVE;
+
+        // Set grace period based on frequency.
+        if (c.frequency == Frequency.DAILY) {
+            c.gracePeriod = GRACE_PERIOD_DAILY;
+        } else if (c.frequency == Frequency.WEEKLY) {
+            c.gracePeriod = GRACE_PERIOD_WEEKLY;
+        } else {
+            c.gracePeriod = GRACE_PERIOD_MONTHLY;
+        }
         c.startTime = block.timestamp;
+
         _initializePeriod(circleId, 0);
         emit CircleActivated(circleId, c.startTime, _periods[circleId][0].deadline);
     }
@@ -901,17 +915,22 @@ contract AdasheCircle is ReentrancyGuard {
         uint8 anchorDay,
         uint8 periodIndex
     ) internal pure returns (uint256) {
-        if (periodIndex == 0) return startTime;
+        // Every period gets a full contribution window. Period 0 is no longer due
+        // immediately at startTime — use (periodIndex + 1) as the interval offset
+        // so period 0 = 1 interval, period 1 = 2 intervals, etc.
+        uint256 n = uint256(periodIndex) + 1;
 
         if (frequency == Frequency.DAILY) {
-            return startTime + uint256(periodIndex) * 1 days;
+            return startTime + n * 1 days;
         }
 
         if (frequency == Frequency.WEEKLY) {
-            return _weekdayAnchor(startTime, weekday) + uint256(periodIndex) * 7 days;
+            return _weekdayAnchor(startTime, weekday) + n * 7 days;
         }
 
-        return _monthlyDeadline(startTime, anchorDay, periodIndex);
+        // Monthly: pass n as the periodIndex; _monthlyDeadline(startTime, anchorDay, 0)
+        // would return startTime, but n >= 1 always so this is safe.
+        return _monthlyDeadline(startTime, anchorDay, uint8(n));
     }
 
     function _weekdayAnchor(uint256 startTime, uint8 targetWeekday) internal pure returns (uint256) {
@@ -928,7 +947,7 @@ contract AdasheCircle is ReentrancyGuard {
         uint8 anchorDay,
         uint8 periodIndex
     ) internal pure returns (uint256) {
-        if (periodIndex == 0) return startTime;
+        require(periodIndex > 0, "periodIndex must be >= 1");
 
         (uint256 year, uint256 month, ) = _timestampToDate(startTime);
         uint256 timeOfDay = startTime % 1 days;

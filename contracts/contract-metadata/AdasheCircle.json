@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef",
+  "contractAddress": "0xdfbb49541cea68d90c75ecfaf43574ee690a9740",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/AdasheCircle.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/AdasheCircle.sol/AdasheCircle.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xdfbb49541cea68d90c75ecfaf43574ee690a9740"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0xdfbb49541cea68d90c75ecfaf43574ee690a9740",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0xdfbb49541cea68d90c75ecfaf43574ee690a9740",
+      "txHash": "0x20e639c956a687080b226e2a04da50e1fac7fb25cb65856090029f2fd11f21af",
+      "deployedAt": "2026-10-21T09:13:34.720Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef",
@@ -73,6 +80,45 @@
     {
       "type": "function",
       "name": "GRACE_PERIOD",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "GRACE_PERIOD_DAILY",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "GRACE_PERIOD_MONTHLY",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "GRACE_PERIOD_WEEKLY",
       "inputs": [],
       "outputs": [
         {

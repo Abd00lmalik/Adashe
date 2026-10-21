@@ -5,6 +5,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagm
 import { useRouter } from 'next/navigation'
 import { keccak256, toHex, decodeEventLog } from 'viem'
 import { adasheContract, CONTRACT_ABI, Frequency, WEEKDAY_LABELS, frequencyLabel } from '@/lib/contract'
+import { buildSchedulePreview, GRACE_PERIOD_LABEL } from '@/lib/schedule'
 import { parseUsdc } from '@/lib/usdc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -304,9 +305,14 @@ export function CreateCircleForm() {
                   ))}
                 </div>
               </div>
+              {/* Grace period callout — always visible */}
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                {GRACE_PERIOD_LABEL[form.frequency as Frequency] ?? '10-day grace period per contribution'} after each deadline before the period can be finalized.
+              </div>
+
               {form.frequency === Frequency.DAILY ? (
                 <div className="rounded-xl bg-forest-50 border border-forest-200 p-3 text-sm text-forest-700">
-                  Daily circles require a contribution every day. Period 0 is due immediately at start; each subsequent period is due one day later.
+                  Daily circles run one period per day. Period 1 deadline is 24 hours after the circle starts, then one day per period after that.
                 </div>
               ) : form.frequency === Frequency.WEEKLY ? (
                 <div>
@@ -325,7 +331,7 @@ export function CreateCircleForm() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted mt-1">
-                    Period 0 deadline is immediately at circle start. Later periods fall on this weekday.
+                    Each period deadline falls on this weekday. Period 1 falls on the first {WEEKDAY_LABELS[form.weekday]} after the circle starts.
                   </p>
                 </div>
               ) : form.frequency === Frequency.MONTHLY ? (
@@ -341,7 +347,7 @@ export function CreateCircleForm() {
                     className="mt-1.5 w-24"
                   />
                   <p className="text-xs text-muted mt-1">
-                    If the anchor day doesn&apos;t exist in a month (e.g. 31 in April), the last day of that month is used.
+                    Period 1 falls on the first day-{form.anchorDay} after the circle starts. If that date does not exist in a month, the last day of that month is used instead.
                   </p>
                 </div>
               ) : null}
@@ -431,7 +437,16 @@ export function CreateCircleForm() {
           )}
 
           {/* Step 4: Review */}
-          {step === 4 && (
+          {step === 4 && (() => {
+            const nowSec = Math.floor(Date.now() / 1000)
+            const preview = form.payoutOrder.every(a => a)
+              ? buildSchedulePreview(nowSec, form.frequency as Frequency, form.weekday, form.anchorDay, form.payoutOrder)
+              : []
+            const lastPeriod = preview[preview.length - 1]
+            const estCompletion = lastPeriod
+              ? new Date(lastPeriod.graceExpirySec * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+              : 'n/a'
+            return (
             <div className="space-y-4">
               <h3 className="font-display font-semibold text-forest-500">Review your circle</h3>
               <div className="space-y-2 text-sm">
@@ -444,8 +459,10 @@ export function CreateCircleForm() {
                     : form.frequency === Frequency.MONTHLY
                     ? `Monthly (day ${form.anchorDay})`
                     : 'Daily'],
+                  ['Grace period', GRACE_PERIOD_LABEL[form.frequency as Frequency]],
                   ['Gross payout', `${form.contributionAmountStr ? (parseFloat(form.contributionAmountStr) * (form.memberCount - 1)).toFixed(2) : 'n/a'} USDC`],
                   ['Net payout (approx)', `${form.contributionAmountStr ? (parseFloat(form.contributionAmountStr) * (form.memberCount - 2)).toFixed(2) : 'n/a'} USDC`],
+                  ['Est. completion', estCompletion],
                 ].map(([label, val]) => (
                   <div key={label} className="flex flex-wrap justify-between gap-x-4 gap-y-0.5">
                     <span className="text-muted shrink-0">{label}</span>
@@ -453,9 +470,49 @@ export function CreateCircleForm() {
                   </div>
                 ))}
               </div>
+
+              {/* Schedule preview table */}
+              {preview.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-forest-500 mb-2">Payout schedule (estimated from now)</p>
+                  <div className="overflow-x-auto rounded-xl border border-ivory-300">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-ivory-200">
+                          <th className="px-3 py-2 text-left text-muted font-medium">#</th>
+                          <th className="px-3 py-2 text-left text-muted font-medium">Recipient</th>
+                          <th className="px-3 py-2 text-left text-muted font-medium">Deadline</th>
+                          <th className="px-3 py-2 text-left text-muted font-medium">Grace ends</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.map((p, i) => (
+                          <tr key={i} className="border-t border-ivory-200">
+                            <td className="px-3 py-2 text-muted">{i + 1}</td>
+                            <td className="px-3 py-2 font-mono text-forest-500">
+                              {p.recipientAddress.slice(0, 6)}…{p.recipientAddress.slice(-4)}
+                            </td>
+                            <td className="px-3 py-2 text-muted whitespace-nowrap">
+                              {new Date(p.deadlineSec * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </td>
+                            <td className="px-3 py-2 text-muted whitespace-nowrap">
+                              {new Date(p.graceExpirySec * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-muted mt-1">Dates shift by the actual start time when you activate the circle.</p>
+                </div>
+              )}
+
               <div className="rounded-xl bg-forest-50 p-4 text-xs text-forest-400 text-pretty">
                 Once created, the circle&apos;s terms cannot be changed. All {form.memberCount} members must
-                join before you can start the circle. The first contribution is due immediately at start.
+                join before you can start the circle. The first contribution deadline is one {
+                  form.frequency === Frequency.DAILY ? 'day' :
+                  form.frequency === Frequency.WEEKLY ? 'week' : 'month'
+                } after the circle starts.
               </div>
 
               {txState === 'signing' && (
@@ -485,7 +542,8 @@ export function CreateCircleForm() {
                 <p className="text-sm text-danger">{txError}</p>
               )}
             </div>
-          )}
+            )
+          })()}
         </CardContent>
       </Card>
 

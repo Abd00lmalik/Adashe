@@ -159,12 +159,26 @@ contract AdasheCircleTest is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Helper: move time past the final deadline of the current period
+    // Helper: move time past the final deadline of the current period.
+    // Reads the circle's actual per-frequency gracePeriod so that multi-period
+    // tests don't accidentally skip past the NEXT period's deadline.
     // ══════════════════════════════════════════════════════════════════════════
     function _skipPastFinalDeadline(uint256 cid) internal {
         uint8 cp = _circleCurrentPeriod(cid);
         (, uint256 deadline, , , , , ) = circle.getPeriod(cid, cp);
-        vm.warp(deadline + GRACE_PERIOD + 1);
+        uint256 gp = _circleGracePeriod(cid);
+        vm.warp(deadline + gp + 1);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Helper: returns gracePeriod field from circles() (field index 13).
+    // ══════════════════════════════════════════════════════════════════════════
+    function _circleGracePeriod(uint256 cid) internal view returns (uint256 gp) {
+        (bool ok, bytes memory data) = address(circle).staticcall(
+            abi.encodeWithSignature("circles(uint256)", cid)
+        );
+        require(ok, "circles() call failed");
+        assembly { gp := mload(add(data, add(32, mul(13, 32)))) }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1004,15 +1018,19 @@ contract AdasheCircleTest is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 21. Weekly schedule: period 0 deadline == startTime;
-    //     period 1 is startTime + ~7 days aligned to target weekday
+    // 21. Weekly schedule: period 0 deadline > startTime (weekday anchor + 7 days);
+    //     period 1 is period 0 deadline + 7 days
     // ══════════════════════════════════════════════════════════════════════════
 
-    function test_weeklySchedule_Period0EqStartTime() public {
+    function test_weeklySchedule_Period0DeadlineGtStartTime() public {
         uint256 cid = _createAndActivate3();
+        uint256 st = _circleStartTime(cid);
 
         (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
-        assertEq(dl0, _circleStartTime(cid), "period 0 deadline should equal startTime");
+        // Period 0 deadline = weekdayAnchor(startTime, weekday) + 7 days
+        // anchor >= startTime, so deadline >= startTime + 7 days
+        assertGt(dl0, st,            "period 0 deadline should be > startTime");
+        assertLe(dl0, st + 14 days,  "period 0 deadline should be within startTime + 14 days");
     }
 
     function test_weeklySchedule_Period1AlignedToWeekday() public {
@@ -1028,14 +1046,16 @@ contract AdasheCircleTest is Test {
 
         (, uint256 dl1, , , , , ) = circle.getPeriod(cid, 1);
 
-        // period 1 deadline should be in [startTime + 6d, startTime + 14d]
-        assertGe(dl1, st + 6 days,  "period 1 too soon");
-        assertLe(dl1, st + 14 days, "period 1 too late");
+        // period 1 deadline = weekdayAnchor + 2*7days
+        // should be in [startTime + 13d, startTime + 21d]
+        assertGe(dl1, st + 13 days, "period 1 too soon");
+        assertLe(dl1, st + 21 days, "period 1 too late");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 22. Monthly schedule: period 0 == startTime; period 1 advances one month;
-    //     anchor day clamped to Feb last day
+    // 22. Monthly schedule: period 0 deadline == first anchorDay occurrence after
+    //     startTime; period 1 advances one more month; anchor day clamped to Feb
+    //     last day.
     // ══════════════════════════════════════════════════════════════════════════
 
     function _activateMonthly(uint8 anchorDay) internal returns (uint256 cid) {
@@ -1050,13 +1070,17 @@ contract AdasheCircleTest is Test {
         vm.prank(creator); circle.startCircle(cid);
     }
 
-    function test_monthlySchedule_Period0EqStartTime() public {
+    function test_monthlySchedule_Period0DeadlineIsFeb15() public {
         // Jan 15, 2025 00:00:00 UTC = 1736899200
-        vm.warp(1736899200);
+        // Period 0 deadline = _monthlyDeadline(startTime, 15, 1) = Feb 15, 2025 = 1739577600
+        uint256 jan15 = 1736899200;
+        vm.warp(jan15);
         uint256 cid = _activateMonthly(15);
 
         (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
-        assertEq(dl0, _circleStartTime(cid), "period 0 deadline should equal startTime");
+        // Feb 15, 2025 00:00:00 UTC = 1739577600
+        assertEq(dl0, 1739577600, "period 0 deadline should be Feb 15 2025");
+        assertGt(dl0, _circleStartTime(cid), "period 0 deadline should be > startTime");
     }
 
     function test_monthlySchedule_Period1AdvancesOneMonth() public {
@@ -1065,15 +1089,19 @@ contract AdasheCircleTest is Test {
         vm.warp(jan15);
         uint256 cid = _activateMonthly(15);
 
-        // Period 1 is only initialized after period 0 is finalized.
-        // Warp past period-0 final deadline (startTime + gracePeriod).
-        vm.warp(jan15 + GRACE_PERIOD + 1);
+        // Period 0 deadline = Feb 15, 2025 = 1739577600
+        // Warp past period-0 final deadline (period0Deadline + GRACE_PERIOD).
+        uint256 feb15 = 1739577600;
+        vm.warp(feb15 + GRACE_PERIOD + 1);
         circle.finalizePeriod(cid); // no contributions → claimable=0 (ok for this test)
 
         (, uint256 dl1, , , , , ) = circle.getPeriod(cid, 1);
 
-        // Feb 15, 2025 00:00:00 UTC = 1739577600
-        assertEq(dl1, 1739577600, "period 1 should be Feb 15 2025");
+        // Mar 15, 2025 00:00:00 UTC = 1742000400 (= 1739577600 + 31 days? let's compute)
+        // _monthlyDeadline(jan15, 15, 2): month index = (1-1)+2=2, year=2025, month=3, day=15
+        // Mar 15 2025 UTC: days from epoch = daysFromDate(2025,3,15)
+        // We know Feb 15 = 1739577600, Mar 15 = Feb 15 + 28 days = 1739577600 + 28*86400 = 1741996800
+        assertEq(dl1, 1741996800, "period 1 should be Mar 15 2025");
     }
 
     function test_monthlySchedule_AnchorDayClampedToFebLastDay() public {
@@ -1082,14 +1110,26 @@ contract AdasheCircleTest is Test {
         vm.warp(jan31);
         uint256 cid = _activateMonthly(31);
 
-        // Period 1 is only initialized after period 0 is finalized.
-        vm.warp(jan31 + GRACE_PERIOD + 1);
+        // Period 0 deadline = _monthlyDeadline(jan31, 31, 1) = Feb 28, 2025 = 1740700800
+        uint256 feb28 = 1740700800;
+        // Warp past period-0 final deadline.
+        vm.warp(feb28 + GRACE_PERIOD + 1);
         circle.finalizePeriod(cid);
 
         (, uint256 dl1, , , , , ) = circle.getPeriod(cid, 1);
 
-        // Feb 28, 2025 00:00:00 UTC = 1740700800
-        assertEq(dl1, 1740700800, "anchor day 31 should clamp to Feb 28 2025");
+        // _monthlyDeadline(jan31, 31, 2): month index=(1-1)+2=2, year=2025, month=3, day=31
+        // Mar 31, 2025 UTC = 1743379200 + ? let's compute from Feb 28:
+        // Feb 28 (day 20147 since epoch?) → Mar 31 2025:
+        // Feb 28 2025 + 31 days = Mar 31 2025 = 1740700800 + 31*86400 = 1743385200
+        // But _monthlyDeadline uses timeOfDay = startTime % 1 days = 1738281600 % 86400 = 0
+        // So: Mar 31 2025 00:00:00 UTC = 1743379200
+        // Let me be more careful: daysFromDate(2025,3,31)
+        // Jan 1 2025 UTC = 1735689600; Jan has 31 days, Feb has 28 days in 2025:
+        // Jan 1 + 31 days = Feb 1 = 1735689600 + 31*86400 = 1738368000
+        // Feb 1 + 28 days = Mar 1 = 1738368000 + 28*86400 = 1740787200
+        // Mar 1 + 30 days = Mar 31 = 1740787200 + 30*86400 = 1743379200
+        assertEq(dl1, 1743379200, "anchor day 31 period 1 should be Mar 31 2025");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1587,7 +1627,8 @@ contract AdasheCircleTest is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 33. Daily schedule: period 1 deadline == startTime + 1 days
+    // 33. Daily schedule: period 0 deadline == startTime + 1 day;
+    //                     period 1 deadline == startTime + 2 days
     // ══════════════════════════════════════════════════════════════════════════
 
     function test_dailySchedule_periodDeadlines() public {
@@ -1609,19 +1650,21 @@ contract AdasheCircleTest is Test {
 
         uint256 startTime = _circleStartTime(cid);
 
-        // Period 0 deadline == startTime
+        // Period 0 deadline == startTime + 1 day  (n = periodIndex+1 = 1)
         (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
-        assertEq(dl0, startTime, "period 0 deadline should equal startTime for daily");
+        assertEq(dl0, startTime + 1 days, "period 0 deadline should be startTime + 1 day for daily");
 
         // Finalize period 0 to initialize period 1
+        // Contributions must happen before dl0; startTime is well before dl0 so no warp needed.
         vm.prank(alice); circle.contribute(cid, 0);
         vm.prank(bob);   circle.contribute(cid, 0);
+        // Warp past period 0 final deadline (dl0 + DAILY grace 12h); GRACE_PERIOD (240h) > 12h ✓
         vm.warp(dl0 + GRACE_PERIOD + 1);
         circle.finalizePeriod(cid);
 
-        // Period 1 deadline == startTime + 1 days
+        // Period 1 deadline == startTime + 2 days  (n = periodIndex+1 = 2)
         (, uint256 dl1, , , , , ) = circle.getPeriod(cid, 1);
-        assertEq(dl1, startTime + 1 days, "period 1 deadline should be startTime + 1 day for daily");
+        assertEq(dl1, startTime + 2 days, "period 1 deadline should be startTime + 2 days for daily");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1791,5 +1834,149 @@ contract AdasheCircleTest is Test {
         vm.prank(creator);
         vm.expectRevert(bytes("already joined"));
         circle.joinCircle(cid);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 41. Period 0 deadline for DAILY circle == startTime + 1 day
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_period0_daily_hasRealDeadline() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle(
+            "D0", CONTRIBUTION, 3, AdasheCircle.Frequency.DAILY, 0, 1, order, PIN
+        );
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        uint256 st = _circleStartTime(cid);
+        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        assertEq(dl0, st + 1 days, "DAILY period 0 deadline should be startTime + 1 day");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 42. Period 0 deadline for WEEKLY circle (weekday=0) > startTime
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_period0_weekly_hasRealDeadline() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        // weekday = 0 (Sunday)
+        uint256 cid = circle.createCircle(
+            "W0", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 0, 1, order, PIN
+        );
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        uint256 st = _circleStartTime(cid);
+        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        // deadline = weekdayAnchor(st, 0) + 7 days
+        // anchor >= st, so deadline >= st + 7 days
+        assertGt(dl0, st,           "WEEKLY period 0 deadline should be > startTime");
+        assertLe(dl0, st + 14 days, "WEEKLY period 0 deadline should be within startTime + 14 days");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 43. Period 0 deadline for MONTHLY circle (anchorDay=15) == Feb 15 2025
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_period0_monthly_hasRealDeadline() public {
+        // Start on Jan 15, 2025 00:00:00 UTC = 1736899200
+        uint256 jan15 = 1736899200;
+        vm.warp(jan15);
+
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle(
+            "M0", CONTRIBUTION, 3, AdasheCircle.Frequency.MONTHLY, 0, 15, order, PIN
+        );
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        // _monthlyDeadline(jan15, 15, 1) = Feb 15, 2025 00:00:00 UTC = 1739577600
+        assertEq(dl0, 1739577600, "MONTHLY period 0 deadline should be Feb 15 2025");
+        assertGt(dl0, jan15, "MONTHLY period 0 deadline should be > startTime");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 44. After startCircle with DAILY, circle.gracePeriod == 12 hours
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_gracePeriod_daily() public {
+        address[] memory order = _payoutOrder3();
+        vm.prank(creator);
+        uint256 cid = circle.createCircle(
+            "GD", CONTRIBUTION, 3, AdasheCircle.Frequency.DAILY, 0, 1, order, PIN
+        );
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        assertEq(_circleGracePeriod(cid), 12 hours, "DAILY circle.gracePeriod should be 12 hours");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 45. After startCircle with WEEKLY, circle.gracePeriod == 72 hours
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_gracePeriod_weekly() public {
+        uint256 cid = _createAndActivate3(); // WEEKLY circle
+        assertEq(_circleGracePeriod(cid), 72 hours, "WEEKLY circle.gracePeriod should be 72 hours");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 46. After startCircle with MONTHLY, circle.gracePeriod == 240 hours
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_gracePeriod_monthly() public {
+        uint256 cid = _activateMonthly(15);
+        assertEq(_circleGracePeriod(cid), 240 hours, "MONTHLY circle.gracePeriod should be 240 hours");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 47. finalizePeriod reverts when warped to deadline + grace - 1 second
+    //     (WEEKLY circle: deadline + 72h - 1)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_finalizePeriod_revertsBeforeGraceExpiry() public {
+        uint256 cid = _createAndActivate3(); // WEEKLY, grace = 72h
+        uint8 cp = _circleCurrentPeriod(cid);
+        (, uint256 deadline, , , , , ) = circle.getPeriod(cid, cp);
+        uint256 gracePeriod = _circleGracePeriod(cid); // 72 hours
+
+        // Warp to exactly 1 second before the final deadline expires
+        vm.warp(deadline + gracePeriod - 1);
+
+        vm.expectRevert(bytes("not all final deadlines passed"));
+        circle.finalizePeriod(cid);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 48. finalizePeriod succeeds when warped to deadline + grace + 1 second
+    //     (WEEKLY circle: deadline + 72h + 1)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_finalizePeriod_succeedsAfterGraceExpiry() public {
+        uint256 cid = _createAndActivate3(); // WEEKLY, grace = 72h
+        uint8 cp = _circleCurrentPeriod(cid);
+        (, uint256 deadline, , , , , ) = circle.getPeriod(cid, cp);
+        uint256 gracePeriod = _circleGracePeriod(cid); // 72 hours
+
+        // Contribute before deadline
+        vm.prank(alice); circle.contribute(cid, 0);
+        vm.prank(bob);   circle.contribute(cid, 0);
+
+        // Warp to 1 second after the final deadline
+        vm.warp(deadline + gracePeriod + 1);
+
+        // Should succeed (no revert)
+        circle.finalizePeriod(cid);
+
+        // Circle advanced to period 1
+        assertEq(_circleCurrentPeriod(cid), 1, "circle should have advanced to period 1");
     }
 }

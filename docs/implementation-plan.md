@@ -1,103 +1,125 @@
-Reading everything that renders after activation before touching anything. I can already see a critical issue on line 83 of the circle page. Let me read `CurrentPeriod`, `CreatorPanel`, `PeriodTimeline`, and `MembersList` to find all crash sites: I already have the first crash site. Let me read the rest of the files to find all crash sites: Now I have all the evidence. Let me check the `CircleHeader` frequency label for DAILY, and the `memberRaw` destructuring crash site: Now I have a complete picture of all crash sites. Let me document them precisely before fixing: **Confirmed crash sites — all grounded in code:**
+Clear. Building now. Here's exactly what will happen:
 
-**Crash 1 (most likely primary cause):** `page.tsx` line 83:
-```ts
-const [approved, , , debtBalance] = memberRaw
-  ? (memberRaw as [boolean, boolean, bigint, bigint, bigint, string])
-  : [false, false, 0n, 0n, 0n, '']
-```
-The `memberRecords` ABI getter returns a tuple `(approved, joined, reserveBalance, debtBalance, positionPlusOne, removedAt)`. After `startCircle()` activates the circle, this call succeeds and `memberRaw` is truthy. But `memberRaw` is also truthy when the call returns `status: 'success'` for a non-member. `hasDebt = (debtBalance as bigint) > 0n` — if `debtBalance` is actually `undefined` because the tuple had fewer fields than expected, this throws `TypeError: Cannot convert undefined or null to BigInt`.
-
-**Crash 2:** `CircleHeader.tsx` line 18–21: `frequencyLabel` only handles `WEEKLY` and `MONTHLY`. A `DAILY` circle (frequency=2) falls through to `Monthly · day ${anchorDay}` — but `anchorDay` may be 0 for a daily circle, producing misleading output but not a crash.
-
-**Crash 3:** `page.tsx` line 83 — `memberRaw` destructuring: when `address` is undefined (wallet disconnected mid-render), `memberRaw` from `data?.[1]` is actually `data[0]` (the circle data) because the conditional spread makes `contracts[1]` only exist when `address` is defined. If `address` becomes defined after initial render (wallet reconnect), `data[1]` may be stale/null while `data[0]` shifts. This is a race condition.
-
-**Crash 4:** `PeriodTimeline.tsx` line 129: `withheldAmount > 0n` — `withheldAmount` comes from destructuring `pd ?? ['', 0n, 0n, false, false, 0n, []]` at index 5. If `pd` is a 7-tuple but the contract returns fewer fields, `withheldAmount` is `undefined` and `undefined > 0n` throws `TypeError`.
-
-**Crash 5:** `formatDeadline(deadline as bigint)` in `PeriodTimeline.tsx` line 122 — `format(new Date(Number(0n) * 1000), ...)` = `format(new Date(0), ...)` = "01 Jan 1970". Not a crash but the `CountdownTimer` component receiving `deadline = 0n` may throw if it tries to calculate a negative date.
-
-Now fixing all of these:I'm in Plan mode. Here are all the fixes precisely specified — switch to Build mode to execute:
+- Contract: remove period-0 special case, add per-frequency grace periods (12h/3d/10d), redeploy to Arc Testnet
+- Frontend: schedule preview, grace period callout per frequency, fix `canFinalize`, fix future period display
+- Tests: new Foundry tests + frontend tests
+- Report the new CA at the end so you can update Vercel Now making the contract changes: Good. Now making the precise contract edits:I'm in Plan mode. The full plan is finalized above — switching to Build mode is needed to apply changes. Here's the complete specification so the build executes cleanly:
 
 ---
 
-## Exact fixes — all five crash sites
+## Complete build specification
 
-### Fix 1: `src/app/circles/[circleId]/page.tsx` — memberRaw destructuring crash
+### Contract changes (`contracts/AdasheCircle.sol`)
 
-Replace lines 83–86:
-```ts
-// BEFORE (crashes if tuple has unexpected shape or bigint field is undefined)
-const [approved, , , debtBalance] = memberRaw
-  ? (memberRaw as [boolean, boolean, bigint, bigint, bigint, string])
-  : [false, false, 0n, 0n, 0n, '']
-const hasDebt = (debtBalance as bigint) > 0n
-```
-With:
-```ts
-// AFTER — safe optional chaining, explicit fallback per field
-const memberTuple = memberRaw as [boolean, boolean, bigint, bigint, bigint, string] | null
-const approved = memberTuple?.[0] ?? false
-const debtBalance = memberTuple?.[3] ?? 0n
-const hasDebt = debtBalance > 0n
+**Change 1 — Replace single `GRACE_PERIOD` constant with per-frequency constants:**
+```solidity
+// REMOVE:
+uint256 public constant GRACE_PERIOD = 240 hours;
+
+// REPLACE WITH:
+uint256 public constant GRACE_PERIOD_DAILY   =  12 hours;
+uint256 public constant GRACE_PERIOD_WEEKLY  =  72 hours;  // 3 days
+uint256 public constant GRACE_PERIOD_MONTHLY = 240 hours;  // 10 days
+uint256 public constant GRACE_PERIOD         = 240 hours;  // kept as alias; overridden per-frequency at startCircle
 ```
 
-### Fix 2: `src/components/circle/CircleHeader.tsx` — missing DAILY label
+**Change 2 — Set grace period per-frequency in `startCircle()`:**
 
-Replace lines 18–21:
-```ts
-// BEFORE — no DAILY case
-const frequencyLabel =
-  frequency === Frequency.WEEKLY
-    ? `Weekly · ${WEEKDAY_LABELS[weekday] ?? weekday}`
-    : `Monthly · day ${anchorDay}`
-```
-With:
-```ts
-// AFTER — handles all three frequencies
-import { FREQUENCY_LABELS } from '@/lib/contract'
-const frequencyLabel =
-  frequency === Frequency.WEEKLY
-    ? `Weekly · ${WEEKDAY_LABELS[weekday] ?? weekday}`
-    : frequency === Frequency.DAILY
-    ? 'Daily'
-    : `Monthly · day ${anchorDay}`
+After `c.status = CircleStatus.ACTIVE;` and before `c.startTime = block.timestamp;`, add:
+```solidity
+if (c.frequency == Frequency.DAILY) {
+    c.gracePeriod = GRACE_PERIOD_DAILY;
+} else if (c.frequency == Frequency.WEEKLY) {
+    c.gracePeriod = GRACE_PERIOD_WEEKLY;
+} else {
+    c.gracePeriod = GRACE_PERIOD_MONTHLY;
+}
 ```
 
-### Fix 3: `src/components/circle/PeriodTimeline.tsx` — withheldAmount undefined crash
+**Change 3 — Remove period-0 special case in `_periodDeadline()`:**
 
-Replace line 57–58:
-```ts
-// BEFORE — index 5 may be undefined when pd is null fallback
-const [recipient, deadline, grossEntitlement, payoutReleased, payoutWithheld, withheldAmount] =
-  pd ?? ['', 0n, 0n, false, false, 0n, []]
-```
-With:
-```ts
-// AFTER — explicit nullish coalescing per field
-const recipient = pd?.[0] ?? ''
-const deadline = pd?.[1] ?? 0n
-const grossEntitlement = pd?.[2] ?? 0n
-const payoutReleased = pd?.[3] ?? false
-const payoutWithheld = pd?.[4] ?? false
-const withheldAmount = pd?.[5] ?? 0n
+```solidity
+// REMOVE these two lines entirely:
+if (periodIndex == 0) return startTime;
 ```
 
-### Fix 4: `src/components/circle/MembersList.tsx` — removedAt undefined crash
+The three frequency branches already handle `periodIndex == 0` correctly once the special case is removed:
+- `DAILY`: `startTime + 0 * 1 days = startTime` — wait, this still returns `startTime` for period 0. We need `periodIndex + 1` for all periods, or change the formula.
 
-Line 56: `const [approved, joined, reserveBalance, debtBalance, removedAt] = rec ?? [false, false, 0n, 0n, 0n, '']`
-The tuple is 6 elements but only 5 are destructured — `removedAt` gets index 4 which is `positionPlusOne` (a bigint). `removedAt > 0n` then fires for any member with a valid position. Fix: destructure all 6 fields correctly:
-```ts
-const [approved, joined, reserveBalance, debtBalance, positionPlusOne, removedAt] =
-  rec ?? [false, false, 0n, 0n, 0n, '']
-const isRemoved = typeof removedAt === 'string' ? false : (removedAt as bigint) > 0n
+Actually the cleanest fix is: periods are 1-indexed in the deadline formula. Replace `uint256(periodIndex)` with `uint256(periodIndex) + 1` in each branch, so period 0 gets interval 1, period 1 gets interval 2, etc.
+
+**Revised `_periodDeadline`:**
+```solidity
+function _periodDeadline(
+    uint256 startTime,
+    Frequency frequency,
+    uint8 weekday,
+    uint8 anchorDay,
+    uint8 periodIndex
+) internal pure returns (uint256) {
+    // No special case for period 0. Every period gets a full contribution window.
+    // Use periodIndex+1 as the interval offset so period 0 = 1 interval, period 1 = 2 intervals, etc.
+    uint256 n = uint256(periodIndex) + 1;
+
+    if (frequency == Frequency.DAILY) {
+        return startTime + n * 1 days;
+    }
+    if (frequency == Frequency.WEEKLY) {
+        return _weekdayAnchor(startTime, weekday) + n * 7 days;
+    }
+    return _monthlyDeadline(startTime, anchorDay, uint8(n));
+}
 ```
 
-### Fix 5: Add React error boundary to `src/app/circles/[circleId]/page.tsx`
+Note: `_monthlyDeadline` already handles `periodIndex == 0` as a special case returning `startTime` — update it to remove that too, or just pass `n` (which is always ≥ 1) and it works correctly.
 
-Wrap `CircleDetailContent` in a new `CircleErrorBoundary` class component so a rendering exception in any tab shows a recovery UI instead of a blank page.
+### Tests — update `_createAndActivate3` and helpers
 
-### No contract change needed
+All test helpers that warp time to `startTime + GRACE_PERIOD + 1` to pass `finalizePeriod` need updating: the deadline is now `startTime + interval` (not `startTime`), and grace is per-frequency. For WEEKLY tests: deadline = `_weekdayAnchor(startTime, weekday) + 7 days`, grace = 72h. For MONTHLY: deadline = first monthly anchor, grace = 240h. Update helpers accordingly.
 
-All five crashes are in the frontend. The contract state is intact. The existing active circle is fully usable once these fixes are deployed.
+New tests to add:
+1. `test_period0_dailyHasRealDeadline` — period 0 deadline = startTime + 1 day for DAILY
+2. `test_period0_weeklyHasRealDeadline` — period 0 deadline = weekdayAnchor + 7 days for WEEKLY
+3. `test_period0_monthlyHasRealDeadline` — period 0 deadline = first anchorDay occurrence for MONTHLY
+4. `test_gracePeriod_daily` — circle.gracePeriod == 12 hours for DAILY
+5. `test_gracePeriod_weekly` — circle.gracePeriod == 72 hours for WEEKLY
+6. `test_gracePeriod_monthly` — circle.gracePeriod == 240 hours for MONTHLY
+7. `test_finalizePeriod_revertsBeforeGraceExpiry` — calling finalizePeriod before deadline + grace reverts
+8. `test_finalizePeriod_succeedsAfterGraceExpiry` — succeeds after deadline + grace
 
-Switch to Build mode to apply all five fixes.
+### Frontend changes
+
+**`CurrentPeriod.tsx`** — fix `canFinalize`:
+```ts
+// BEFORE:
+const canFinalize = (() => {
+  if (!deadlinePast) return false
+  ...
+})()
+
+// AFTER: require grace period to have expired
+// gracePeriod comes from circle data (c.gracePeriod as bigint)
+const gracePeriod = circleRaw?.[0]?.gracePeriod as bigint ?? 240n * 3600n
+const graceExpiry = deadline + gracePeriod // both in seconds as bigint
+const graceExpired = BigInt(Math.floor(Date.now() / 1000)) > graceExpiry
+const canFinalize = graceExpired && !!participants
+```
+
+**`PeriodTimeline.tsx`** — show "Scheduled" for future uninitiated periods in ACTIVE circles:
+```ts
+// For periods > currentPeriod in an ACTIVE circle where pd is null:
+// Compute expected deadline on the frontend using the same formula
+// Show: "Scheduled — opens when period [n] is finalized"
+// Show expected deadline computed from startTime + (n+1) * interval
+```
+
+**`CreateCircleForm.tsx`** — Add:
+1. Grace period callout on Step 1 (Schedule): per-frequency text showing the grace period
+2. Schedule preview on Step 4 (Review): table of all N periods with position, recipient (truncated), expected deadline, grace expiry
+
+**`src/lib/schedule.ts`** — New utility file: `computeDeadline(startTime, frequency, weekday, anchorDay, periodIndex)` — mirrors `_periodDeadline` in TypeScript for the frontend preview. Also exports `GRACE_PERIOD_BY_FREQUENCY`.
+
+### Deployment
+- `forge build` → `forge test` → deploy → new CA → update `contract-metadata/AdasheCircle.json`, `contract.ts`, `.env`, `AGENTS.md`
+
+Switch to Build mode to execute all of this.
