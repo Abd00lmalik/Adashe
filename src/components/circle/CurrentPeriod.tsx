@@ -33,20 +33,22 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
 
   const periodIndex = BigInt(currentPeriod as number)
 
+  // Always include both contracts so data[0]=period and data[1]=contribution
+  // are at stable indices regardless of whether address is defined yet.
+  const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as `0x${string}`
   const { data, isLoading, refetch } = useReadContracts({
     contracts: [
       { ...adasheContract, functionName: 'getPeriod', args: [cid, periodIndex] },
-      ...(address
-        ? [{ ...adasheContract, functionName: 'getContribution', args: [cid, periodIndex, address as `0x${string}`] }]
-        : []),
+      { ...adasheContract, functionName: 'getContribution', args: [cid, periodIndex, (address ?? ZERO_ADDR) as `0x${string}`] },
     ],
-    query: { staleTime: 15_000 },
+    query: { staleTime: 0, refetchOnMount: true },
   })
 
   const periodData = data?.[0]?.status === 'success'
     ? (data[0].result as [string, bigint, bigint, boolean, boolean, bigint, string[]])
     : null
-  const contributionData = data?.[1]?.status === 'success'
+  // data[1] is always at index 1 — no shifting based on address presence
+  const contributionData = data?.[1]?.status === 'success' && address
     ? data[1].result
     : null
 
@@ -102,7 +104,11 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   // Read frequency from circleRaw to pick the correct grace duration.
   const circleFrequency = (frequency as unknown as number) as Frequency
   const graceExpiredNow = isGraceExpired(Number(deadline as bigint), circleFrequency)
-  const canContribute = address && !isRecipient && contribution?.status === 0 && contribution?.paidAmount === 0n && !deadlinePast
+  // Show contribution button when: wallet connected, not the recipient, not already paid,
+  // contribution data loaded, and deadline not yet passed.
+  const hasPaid = contributionData !== null && contribution !== null &&
+    (contribution.status !== 0 || (contribution.paidAmount ?? 0n) > 0n)
+  const canContribute = !!address && !isRecipient && !deadlinePast && contributionData !== null && !hasPaid
 
   // Only show Finalize when the grace period has fully passed AND there are participants.
   const canFinalize = graceExpiredNow && !!participants && (participants as string[]).length > 0
@@ -117,20 +123,14 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
         args: [cid, periodIndex],
       })
       setContributeTxState({ status: 'confirming', hash })
-      // Poll for receipt
-      const poll = setInterval(async () => {
-        const res = await refetch()
-        const updated = res.data?.[1]?.result as { status: number } | undefined
-        if (updated && updated.status !== 0) {
-          clearInterval(poll)
-          setContributeTxState({ status: 'success', hash })
-          toast.success('Contribution confirmed!')
-        }
-      }, 3000)
-      setTimeout(() => clearInterval(poll), 60_000)
+      // Wait ~5s for the block to mine, then refresh contribution state.
+      await new Promise((r) => setTimeout(r, 5000))
+      await refetch()
+      setContributeTxState({ status: 'success', hash })
+      toast.success('Contribution confirmed!')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
-      setContributeTxState({ status: 'error', message: msg.includes('User rejected') ? 'You rejected the transaction.' : 'Contribution failed.' })
+      setContributeTxState({ status: 'error', message: msg.includes('User rejected') ? 'You rejected the transaction.' : msg.includes('already settled') ? 'You have already contributed this period.' : 'Contribution failed.' })
     }
   }
 
@@ -144,6 +144,8 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
         args: [cid],
       })
       setFinalizeTxState({ status: 'confirming', hash })
+      await new Promise((r) => setTimeout(r, 5000))
+      await refetch()
       setFinalizeTxState({ status: 'success', hash })
       toast.success('Period finalized!')
     } catch (err: unknown) {

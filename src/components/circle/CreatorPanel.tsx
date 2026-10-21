@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useReadContracts, useWriteContract } from 'wagmi'
+import { useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useQueryClient } from '@tanstack/react-query'
 import { isAddress } from 'viem'
 import { adasheContract, CONTRACT_ABI, CircleStatus } from '@/lib/contract'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -61,6 +62,30 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
   })
 
   const { writeContractAsync } = useWriteContract()
+  const queryClient = useQueryClient()
+
+  // Track the startCircle tx hash so we can wait for its receipt.
+  const [startTxHash, setStartTxHash] = useState<`0x${string}` | undefined>()
+  const { isSuccess: startReceiptSuccess, isError: startReceiptError } = useWaitForTransactionReceipt({
+    hash: startTxHash,
+    query: { enabled: !!startTxHash },
+  })
+
+  // Once the receipt confirms, invalidate cached circle data and show success.
+  useEffect(() => {
+    if (startReceiptSuccess && startTxHash) {
+      setStartTxState({ status: 'success', hash: startTxHash })
+      toast.success('Circle started!')
+      // Invalidate all contract reads so the page re-fetches fresh status.
+      queryClient.invalidateQueries()
+      setStartTxHash(undefined)
+    }
+    if (startReceiptError && startTxHash) {
+      setStartTxState({ status: 'error', message: 'Start transaction reverted.' })
+      setStartTxHash(undefined)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startReceiptSuccess, startReceiptError])
 
   // On mount: check if a valid invite already exists for this circle so the
   // link survives page refreshes without re-generating a duplicate.
@@ -132,9 +157,11 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
         args: [cid, memberAddr as `0x${string}`],
       })
       setApproveTxStates((s) => ({ ...s, [memberAddr]: { status: 'confirming', hash } }))
+      // Wait ~4s for the tx to mine, then refetch and mark success.
+      await new Promise((r) => setTimeout(r, 4000))
+      await refetch()
       setApproveTxStates((s) => ({ ...s, [memberAddr]: { status: 'success', hash } }))
       toast.success(`Approved ${memberAddr.slice(0, 6)}…`)
-      await refetch()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
       setApproveTxStates((s) => ({ ...s, [memberAddr]: { status: 'error', message: msg.includes('User rejected') ? 'Rejected.' : 'Approval failed.' } }))
@@ -151,9 +178,10 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
         args: [cid, memberAddr as `0x${string}`],
       })
       setRemoveTxStates((s) => ({ ...s, [memberAddr]: { status: 'confirming', hash } }))
+      await new Promise((r) => setTimeout(r, 4000))
+      await refetch()
       setRemoveTxStates((s) => ({ ...s, [memberAddr]: { status: 'success', hash } }))
       toast.success(`Removed ${memberAddr.slice(0, 6)}...`)
-      await refetch()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
       setRemoveTxStates((s) => ({ ...s, [memberAddr]: { status: 'error', message: msg.includes('User rejected') ? 'Rejected.' : 'Remove failed.' } }))
@@ -174,6 +202,8 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
         args: [cid, replaceOld as `0x${string}`, replaceNew as `0x${string}`],
       })
       setReplaceTxState({ status: 'confirming', hash })
+      await new Promise((r) => setTimeout(r, 4000))
+      await refetch()
       setReplaceTxState({ status: 'success', hash })
       toast.success('Replacement approved')
       setReplaceOld('')
@@ -195,12 +225,12 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
         functionName: 'startCircle',
         args: [cid],
       })
+      // Store hash — the useWaitForTransactionReceipt hook handles success/error.
+      setStartTxHash(hash)
       setStartTxState({ status: 'confirming', hash })
-      setStartTxState({ status: 'success', hash })
-      toast.success('Circle started!')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
-      setStartTxState({ status: 'error', message: msg.includes('not all approved') ? 'Not all members are approved yet.' : msg.includes('User rejected') ? 'Rejected.' : 'Failed to start circle.' })
+      setStartTxState({ status: 'error', message: msg.includes('not all approved') ? 'Not all members are approved yet.' : msg.includes('not all members joined') ? 'Not all members have joined yet.' : msg.includes('User rejected') ? 'Rejected.' : 'Failed to start circle.' })
     }
   }
 
@@ -304,7 +334,7 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
           <CardContent className="space-y-3">
             {pendingMembers.length === 0 ? (
               <p className="text-sm text-forest-600 text-pretty">
-                All {memberCount} members have joined. Start the circle to begin the first period. The first contribution is due immediately.
+                All {memberCount} members have joined. Start the circle to begin the first contribution period.
               </p>
             ) : (
               <p className="text-sm text-muted text-pretty">
@@ -316,7 +346,7 @@ export function CreatorPanel({ cid, circleRaw }: CreatorPanelProps) {
               onAction={handleStartCircle}
               idleLabel="Start Circle"
               variant={pendingMembers.length === 0 ? 'default' : 'secondary'}
-              disabled={pendingMembers.length > 0}
+              disabled={pendingMembers.length > 0 || startTxState.status === 'confirming'}
             />
           </CardContent>
         </Card>

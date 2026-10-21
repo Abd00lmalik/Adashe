@@ -67,7 +67,7 @@ export default function CirclePage() {
         ? [{ ...adasheContract, functionName: 'memberRecords', args: [cid, address as `0x${string}`] }]
         : []),
     ],
-    query: { staleTime: 10_000 },
+    query: { staleTime: 0, refetchOnMount: true },
   })
 
   const circleRaw = data?.[0]?.status === 'success' ? data[0].result : null
