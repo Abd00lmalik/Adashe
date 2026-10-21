@@ -54,8 +54,13 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
           ? (periodsData[i].result as [string, bigint, bigint, boolean, boolean, bigint, string[]])
           : null
 
-        const [recipient, deadline, grossEntitlement, payoutReleased, payoutWithheld, withheldAmount] =
-          pd ?? ['', 0n, 0n, false, false, 0n, []]
+        // Safe per-field access: pd may be null or a shorter tuple if the call failed.
+        const recipient       = pd?.[0] ?? ''
+        const deadline        = pd?.[1] ?? 0n
+        const grossEntitlement = pd?.[2] ?? 0n
+        const payoutReleased  = pd?.[3] ?? false
+        const payoutWithheld  = pd?.[4] ?? false
+        const withheldAmount  = pd?.[5] ?? 0n
 
         // A period is "uninitialized" when the circle is PENDING (startCircle not yet called)
         // or when the on-chain call failed. In both cases the recipient is the zero address or ''.

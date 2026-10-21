@@ -1,5 +1,6 @@
 'use client'
 
+import { Component, type ReactNode, type ErrorInfo } from 'react'
 import { useParams } from 'next/navigation'
 import { useAccount, useReadContracts } from 'wagmi'
 import { Navbar } from '@/components/layout/Navbar'
@@ -17,6 +18,42 @@ import { ReservePanel } from '@/components/circle/ReservePanel'
 import { CreatorPanel } from '@/components/circle/CreatorPanel'
 import { adasheContract, CircleStatus } from '@/lib/contract'
 import { sameAddress } from '@/lib/utils'
+
+// ---------------------------------------------------------------------------
+// Error boundary — catches rendering exceptions so a single bad field cannot
+// leave the user on a permanently blank page.
+// ---------------------------------------------------------------------------
+interface EBState { hasError: boolean; message: string }
+class CircleErrorBoundary extends Component<{ children: ReactNode }, EBState> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { hasError: false, message: '' }
+  }
+  static getDerivedStateFromError(err: unknown): EBState {
+    const message = err instanceof Error ? err.message : String(err)
+    return { hasError: true, message }
+  }
+  componentDidCatch(err: Error, info: ErrorInfo) {
+    console.error('[CircleErrorBoundary]', err, info.componentStack)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-dvh bg-ivory-DEFAULT flex flex-col items-center justify-center px-6 text-center gap-4">
+          <p className="text-lg font-semibold text-forest-500">Something went wrong loading this circle.</p>
+          <p className="text-sm text-muted max-w-sm">{this.state.message}</p>
+          <button
+            className="mt-2 px-4 py-2 rounded-xl bg-forest-500 text-white text-sm font-medium hover:bg-forest-600 transition-colors"
+            onClick={() => { this.setState({ hasError: false, message: '' }); window.location.reload() }}
+          >
+            Reload page
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 export default function CirclePage() {
   const { circleId } = useParams<{ circleId: string }>()
@@ -50,12 +87,14 @@ export default function CirclePage() {
             ) : !circleRaw ? (
               <div className="text-center py-20 text-muted">Circle not found.</div>
             ) : (
-              <CircleDetailContent
-                cid={cid}
-                circleRaw={circleRaw as readonly unknown[]}
-                memberRaw={memberRaw as readonly unknown[] | null}
-                address={address}
-              />
+              <CircleErrorBoundary>
+                <CircleDetailContent
+                  cid={cid}
+                  circleRaw={circleRaw as readonly unknown[]}
+                  memberRaw={memberRaw as readonly unknown[] | null}
+                  address={address}
+                />
+              </CircleErrorBoundary>
             )}
           </ChainGuard>
         </WalletGuard>
@@ -80,10 +119,12 @@ function CircleDetailContent({
   ]
 
   const isCreator = sameAddress(creator, address)
-  const [approved, , , debtBalance] = memberRaw
-    ? (memberRaw as [boolean, boolean, bigint, bigint, bigint, string])
-    : [false, false, 0n, 0n, 0n, '']
-  const hasDebt = (debtBalance as bigint) > 0n
+  // memberRecords returns (approved, joined, reserveBalance, debtBalance, positionPlusOne, removedAt)
+  // Use optional chaining per field — the tuple shape can vary if the call reverts or wallet just connected.
+  const memberTuple = memberRaw as [boolean, boolean, bigint, bigint, bigint, string] | null
+  const approved = memberTuple?.[0] ?? false
+  const debtBalance = memberTuple?.[3] ?? 0n
+  const hasDebt = debtBalance > 0n
   const isCompleted = status === CircleStatus.COMPLETED
 
   return (

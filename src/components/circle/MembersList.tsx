@@ -53,10 +53,15 @@ export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps
           const rec = memberData?.[i]?.status === 'success'
             ? (memberData[i].result as [boolean, boolean, bigint, bigint, bigint, string])
             : null
-          const [approved, joined, reserveBalance, debtBalance, removedAt] = rec ?? [false, false, 0n, 0n, 0n, '']
+          // memberRecords: (approved, joined, reserveBalance, debtBalance, positionPlusOne, removedAt)
+          const approved       = rec?.[0] ?? false
+          const joined         = rec?.[1] ?? false
+          const reserveBalance = rec?.[2] ?? 0n
+          const debtBalance    = rec?.[3] ?? 0n
+          const removedAt      = rec?.[5] ?? ''
           const isCreatorAddr = sameAddress(addr, creator as string)
           const isSelf = sameAddress(addr, currentAddress)
-          const isRemoved = (removedAt as bigint) > 0n
+          const isRemoved = typeof removedAt === 'bigint' ? removedAt > 0n : false
           const hasDebt = (debtBalance as bigint) > 0n
 
           return (
@@ -121,10 +126,15 @@ export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps
                 const rec = memberData?.[i]?.status === 'success'
                   ? (memberData[i].result as [boolean, boolean, bigint, bigint, bigint, string])
                   : null
-                const [approved, joined, reserveBalance, debtBalance, removedAt] = rec ?? [false, false, 0n, 0n, 0n, '']
+                // memberRecords: (approved, joined, reserveBalance, debtBalance, positionPlusOne, removedAt)
+                const approved       = rec?.[0] ?? false
+                const joined         = rec?.[1] ?? false
+                const reserveBalance = rec?.[2] ?? 0n
+                const debtBalance    = rec?.[3] ?? 0n
+                const removedAt      = rec?.[5] ?? ''
                 const isCreatorAddr = sameAddress(addr, creator as string)
                 const isSelf = sameAddress(addr, currentAddress)
-                const isRemoved = (removedAt as bigint) > 0n
+                const isRemoved = typeof removedAt === 'bigint' ? removedAt > 0n : false
                 const hasDebt = (debtBalance as bigint) > 0n
 
                 return (

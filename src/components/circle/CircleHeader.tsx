@@ -18,6 +18,8 @@ export function CircleHeader({ cid, circleRaw, isCreator }: CircleHeaderProps) {
   const frequencyLabel =
     frequency === Frequency.WEEKLY
       ? `Weekly · ${WEEKDAY_LABELS[weekday] ?? weekday}`
+      : frequency === Frequency.DAILY
+      ? 'Daily'
       : `Monthly · day ${anchorDay}`
 
   return (
