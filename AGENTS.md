@@ -4,7 +4,8 @@
 
 | Contract | Chain | Address | Tx Hash | Explorer |
 |---|---|---|---|---|
-| AdasheCircle v6 (current) | Arc Testnet | `0xd98f33d01cf491526d2acdb5d34ddbae49248d54` | `0x3a96b0c9132a76a137952e39c78298079836eb17082f0b7b446fc21c7579c41a` | [View](https://explorer.testnet.arc.io/address/0xd98f33d01cf491526d2acdb5d34ddbae49248d54) |
+| AdasheCircle v7 (current) | Arc Testnet | `0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef` | `0x58511777f4d303f5418ea3dc7fb5d8058a71cf57de63e69678365051106606ad` | [View](https://explorer.testnet.arc.io/address/0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef) |
+| AdasheCircle v6 (superseded) | Arc Testnet | `0xd98f33d01cf491526d2acdb5d34ddbae49248d54` | `0x3a96b0c9132a76a137952e39c78298079836eb17082f0b7b446fc21c7579c41a` | [View](https://explorer.testnet.arc.io/address/0xd98f33d01cf491526d2acdb5d34ddbae49248d54) |
 | AdasheCircle v4 (superseded) | Arc Testnet | `0xcd7c871f4d0ce61ef2c90f12d2b0384299134784` | `0x2b0ff88ca4220b9babeafd82e270804334d0e1a54f52b89a049e43ec3ac425df` | [View](https://explorer.testnet.arc.io/address/0xcd7c871f4d0ce61ef2c90f12d2b0384299134784) |
 | AdasheCircle v3 (superseded) | Arc Testnet | `0x20c9fc1e5062df4702798a57b2535bf429b0c912` | `0x8dd1113249fe079822c2af9df9f85335e185b8f53762c99669a874da774c2c84` | [View](https://explorer.testnet.arc.io/address/0x20c9fc1e5062df4702798a57b2535bf429b0c912) |
 | AdasheCircle v2 (superseded) | Arc Testnet | `0xa61aeab00c4b761f79bb8a22b6e167d28e37cfbd` | `0x546ea5b254c27c2f7a82c7963426a525dc63daead6d5386bcb9b24ad6b504d98` | [View](https://explorer.testnet.arc.io/address/0xa61aeab00c4b761f79bb8a22b6e167d28e37cfbd) |
@@ -16,7 +17,8 @@
 - **USDC:** `0x3600000000000000000000000000000000000000` (6 decimals, ERC-20 view)
 - **RPC:** `https://rpc.testnet.arc.io`
 - **Explorer:** `https://explorer.testnet.arc.io`
-- **v6 Deployed:** 2026-10-20T06:13:38Z (contract ID: 01a1560b-d47a-7d8e-9320-eec4719b29a2) — same address as v5; redeployed to include corrected ABI (getPayoutOrder, getPeriod, startCircle, joinCircle were missing from the artifact)
+- **v7 Deployed:** 2026-10-20T08:10:05Z (contract ID: 01a1585c-388c-70a8-9423-11667fbc5090) — new address `0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef`; added auto-join creator in createCircle() when creator address is in payoutOrder; 57/57 Foundry tests pass
+- **v6 Deployed:** 2026-10-20T06:13:38Z — same address as v5; redeployed to include corrected ABI (getPayoutOrder, getPeriod, startCircle, joinCircle were missing)
 - **v5 Deployed:** 2026-10-19T21:23:40Z (superseded — ABI was stale, do not use)
 - **v4 Deployed:** 2026-10-18T19:04:24Z (superseded — do not use)
 - **v3 Deployed:** 2026-10-18T18:50:32Z (superseded — do not use)
@@ -46,7 +48,7 @@
 - PostgreSQL + Prisma (invites, PIN, notifications)
 - Design tokens: ivory `#F5F0E6`, forest `#244B3C`, terracotta `#C77D55`
 - 0 TypeScript errors, 0 ESLint errors (verified 2026-10-18)
-- Foundry tests: 52/52 pass (v5)
+- Foundry tests: 57/57 pass (v7)
 
 ## Constructor Args
 

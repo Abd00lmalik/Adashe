@@ -144,7 +144,8 @@ export function CreateCircleForm() {
             topics: log.topics as [signature: `0x${string}`, ...args: `0x${string}`[]],
           })
           if (decoded.eventName === 'CircleCreated') {
-            circleIdFromEvent = String((decoded.args as { circleId: bigint }).circleId)
+            const args = decoded.args as unknown as { circleId: bigint }
+            circleIdFromEvent = String(args.circleId)
             break
           }
         } catch { /* not our event */ }
