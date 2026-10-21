@@ -21,7 +21,9 @@ export function timeAgo(unixSeconds: number | bigint): string {
 /** Format a Unix timestamp (seconds) as an absolute date/time string. */
 export function formatDeadline(unixSeconds: number | bigint): string {
   const ms = Number(unixSeconds) * 1000
-  return format(new Date(ms), 'dd MMM yyyy, HH:mm UTC')
+  // Apostrophes escape literal text in date-fns format strings.
+  // Without escaping, 'U' is treated as ISO week-year and throws.
+  return format(new Date(ms), "dd MMM yyyy, HH:mm 'UTC'")
 }
 
 /** Return true if a Unix timestamp (seconds) is in the past. */
