@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useReadContracts, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi'
 import { adasheContract, CONTRACT_ABI, CircleStatus } from '@/lib/contract'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { UsdcAmount } from '@/components/ui/UsdcAmount'
@@ -45,7 +45,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   })
 
   const periodData = data?.[0]?.status === 'success'
-    ? (data[0].result as [string, bigint, bigint, boolean, boolean, bigint, bigint, string[]])
+    ? (data[0].result as [string, bigint, bigint, boolean, boolean, bigint, bigint, bigint, string[]])
     : null
   // data[1] is always at index 1 — no shifting based on address presence
   const contributionData = data?.[1]?.status === 'success' && address
@@ -54,6 +54,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
 
   const [contributeTxState, setContributeTxState] = useState<TxState>({ status: 'idle' })
   const [finalizeTxState, setFinalizeTxState] = useState<TxState>({ status: 'idle' })
+  const [progressiveTxState, setProgressiveTxState] = useState<TxState>({ status: 'idle' })
 
   const { writeContractAsync } = useWriteContract()
 
@@ -87,7 +88,8 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
     return <Skeleton className="h-48 rounded-2xl" />
   }
 
-  const [recipient, deadline, , , , , , participants] = periodData
+  // 9-element tuple: [recipient, deadline, gross, released, withheld, withheldAmt, claimableAmt, progressivelyPaid, participants]
+  const [recipient, deadline, , , , , claimableAmount, progressivelyPaid, participants] = periodData
   const isRecipient = sameAddress(recipient as string, address)
 
   const contribution = contributionData as {
@@ -131,6 +133,33 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
       setContributeTxState({ status: 'error', message: msg.includes('User rejected') ? 'You rejected the transaction.' : msg.includes('already settled') ? 'You have already contributed this period.' : 'Contribution failed.' })
+    }
+  }
+
+  const handleProgressiveClaim = async () => {
+    setProgressiveTxState({ status: 'signing' })
+    try {
+      const hash = await writeContractAsync({
+        address: adasheContract.address,
+        abi: CONTRACT_ABI as Parameters<typeof writeContractAsync>[0]['abi'],
+        functionName: 'claimProgressivePayout',
+        args: [cid, periodIndex],
+      })
+      setProgressiveTxState({ status: 'confirming', hash })
+      await new Promise((r) => setTimeout(r, 5000))
+      await refetch()
+      setProgressiveTxState({ status: 'success', hash })
+      toast.success('Progressive payout claimed!')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed'
+      setProgressiveTxState({
+        status: 'error',
+        message: msg.includes('debt outstanding')
+          ? 'You have outstanding debt that must be repaid before claiming.'
+          : msg.includes('nothing new to claim')
+          ? 'No additional funds are available to claim yet.'
+          : 'Claim failed.',
+      })
     }
   }
 
@@ -204,6 +233,31 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
             />
           </div>
         )}
+
+        {/* Progressive payout claim — visible to recipient when funds above reserve are available */}
+        {isRecipient && !periodData[3] /* !payoutReleased */ && (() => {
+          const reserveAmt = (circleRaw as unknown[])[12] as bigint
+          const prog = progressivelyPaid as bigint
+          // We can only show "available" if we know paidSoFar — this is estimated from
+          // grossEntitlement but the contract tracks it exactly. Show the claim button
+          // and let the contract reject if nothing is available.
+          return (
+            <div className="pt-2 border-t border-ivory-200">
+              <p className="text-xs text-muted mb-1 font-medium">Progressive payout</p>
+              <p className="text-xs text-muted mb-3">
+                Claim contributions already received above the <UsdcAmount amount={reserveAmt} /> reserve threshold. The reserve is held until period finalization.
+                {prog > 0n && <> Already claimed: <UsdcAmount amount={prog} />.</>}
+              </p>
+              <TxButton
+                txState={progressiveTxState}
+                onAction={handleProgressiveClaim}
+                idleLabel="Claim Available Payout"
+                variant="default"
+                size="sm"
+              />
+            </div>
+          )
+        })()}
 
         {deadlinePast && !graceExpiredNow && (
           <div className="pt-2 rounded-xl bg-amber-50 px-3 py-2">

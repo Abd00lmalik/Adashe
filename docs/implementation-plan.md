@@ -1,74 +1,152 @@
-Reading the full contract before anything else. Now read the `_initializePeriod` and `PayoutPanel` frontend: Now I have the complete picture. Let me check what `getPeriod` actually returns in the ABI: Now I have the complete picture. Let me also check what `getPeriod` returns in the Solidity source: I now have a complete, grounded diagnosis. Let me also check what reserve routing the bug report requests vs what's in the contract: Now I have everything I need for a complete, grounded diagnosis.
+Reading the relevant contract sections carefully before saying anything about the design. Now read `contribute` and `_initializePeriod`: I have read enough. Now I have a complete, grounded understanding of the entire system. Here is the engineering discussion you asked for.
 
 ---
 
-**Complete root cause analysis:**
+## How the existing payout and reserve mechanisms actually work
 
-**Bug 1 — Why `claimPayout` appears to fail (the primary issue):**
+### The contribution lifecycle (what the contract does today)
 
-The `claimablePeriods` filter in `PayoutPanel.tsx` line 39–49 only shows a "Claim Payout" button when `!payoutReleased && !payoutWithheld`. But `PayoutPanel` doesn't have access to `claimableAmount` from the contract — `getPeriod` does NOT return `claimableAmount` (it returns `withheldAmount` at index 5, then `participants` at index 6). So the panel cannot determine whether the payout is actually claimable vs just not-yet-finalized. The `handleClaim` at line 61 also sets `success` immediately without waiting for the receipt — if the tx reverts (e.g. `debt outstanding`), the error is caught and shown, but there's no receipt confirmation.
+When a member calls `contribute()`, the contract:
+1. Verifies they are a participant, not the recipient, not already settled, and within the deadline + grace window
+2. Calls `usdc.safeTransferFrom(msg.sender, address(this), c.contributionAmount)` — funds move to the contract's escrow
+3. Records the contribution in `p.contributions[member]` with `status = PAID` or `LATE_PAID`
+4. That is all — no payout happens at contribution time
 
-**Bug 2 — `finalizePeriod` sets `p.claimableAmount = netPayout` but `getPeriod` doesn't return it** (line 811–815 of the contract). The frontend cannot read `claimableAmount` from the contract — it's stored in `_periods` as a field but not included in the `getPeriod` getter. The `claimPayout` function requires `p.claimableAmount > 0` to succeed (line 518). If `netPayout = 0` (because all contributions went to the reserve: `reserveCredit = min(reserveAmount, totalCollected) = totalCollected` when `totalCollected ≤ reserveAmount`), then `claimPayout` will revert "no claimable payout".
+The USDC sits in the contract. Nothing more happens until `finalizePeriod()` is called.
 
-**The critical accounting bug:** For a 5-member circle with `contributionAmount = 250 USDC`, `reserveAmount = 250 USDC` (set as `c.reserveAmount = contributionAmount` in `createCircle`), and `grossEntitlement = 250 * 4 = 1000 USDC`: `reserveCredit = min(250, 1000) = 250`, `netPayout = 1000 - 250 = 750 USDC`. This is correct — the recipient gets 750 USDC and their `reserveBalance` gets 250 USDC. **This part works correctly.**
+### What finalizePeriod does (the only place a payout becomes available)
 
-**But:** The `PayoutPanel` line 42–43 destructures `getPeriod` result incorrectly:
-```ts
-const [recipient, , , payoutReleased, payoutWithheld, , claimableAmount] =
-  pd.result as [string, bigint, bigint, boolean, boolean, bigint, ...unknown[]]
-```
-Index 6 is `participants` (an `address[]`), not `claimableAmount`. The comment on line 44 even admits this: "claimableAmount is NOT returned by getPeriod". So `claimableAmount` is actually the `participants` array. The `payoutWithheld` check then runs incorrectly.
+`finalizePeriod()` runs after all contributors' final deadlines (deadline + grace period) have passed. It:
+1. Loops over all participants, tallying `totalCollected`
+2. For each defaulter, applies their reserve to cover the shortfall if available
+3. Computes `reserveCredit = min(c.reserveAmount, totalCollected)` — this funds the recipient's individual reserve
+4. Computes `netPayout = totalCollected - reserveCredit` — this is the recipient's spendable payout
+5. Credits `recipientRecord.reserveBalance += reserveCredit` (the recipient's reserve grows)
+6. Sets `p.claimableAmount = netPayout` — now claimable
+7. If recipient has outstanding debt, withholds the payout (`p.payoutWithheld = true`)
 
-**Bug 3 — `handleClaim` sets success immediately** (line 61: `setTxState({ status: 'success', hash })` without awaiting receipt). If the tx reverts, the error is caught in the catch block — but if the tx succeeds, the `refetch()` on line 63 may return stale data.
+The recipient then calls `claimPayout()` to receive `netPayout` USDC transferred to their wallet.
 
-**The reserve routing request from the bug report** (first contribution → reserve, subsequent → payout) conflicts with the existing contract model. The existing model withholds from the recipient's payout, not from individual contributor contributions. The bug report may be describing the intent, but the current contract has a valid alternative model. I will not change the reserve model — it's correct per `init.md` section 6.
+### Why payout availability currently depends on period finalization
 
-**Fixes needed:**
+There are three structural reasons, all in the contract:
 
-1. Add `claimableAmount` to `getPeriod` getter in the contract (requires redeployment)
-2. Fix `PayoutPanel` destructuring to use `claimableAmount` correctly
-3. Fix `handleClaim` to wait for receipt before showing success
-4. Show the actual claimable amount in the UI
+**Reason 1 — Defaulter detection:** The reserve-coverage logic runs at `finalizePeriod`. The contract cannot know whether a contributor will pay or default until their final deadline (which includes the grace period) has passed. Only then can it know the actual `totalCollected` and apply reserve coverage for defaulters.
 
-**Migration risk:** Redeployment resets `_nextCircleId` to 1. Existing circles on the current contract (`0xdfbb49541cea68d90c75ecfaf43574ee690a9740`) will continue to work under that address. The app switches to the new contract for new circles only.
+**Reason 2 — Reserve calculation:** `reserveCredit = min(c.reserveAmount, totalCollected)` depends on `totalCollected`, which is only known after all contributions are resolved.
 
-Proceeding: I need to switch to Build mode. Here is the complete build specification:
+**Reason 3 — Payout withholding:** If the recipient has outstanding debt from a prior period, their payout must be withheld. This check happens at finalization.
+
+### The reserve's actual purpose
+
+The recipient's individual reserve (`reserveCredit = c.contributionAmount = 250 USDC` for a 5-member circle) is withheld from the recipient's payout at finalization. It serves as collateral for the recipient's future contribution obligations. If they miss a later contribution, `finalizePeriod` of that later period consumes their `reserveBalance` to cover the shortfall. This protects the group.
 
 ---
 
-## Build specification: getPeriod + claimableAmount + PayoutPanel fixes
+## What your proposed change requires
 
-### Contract change (minimal, safe)
+You want: as soon as each contribution arrives, route it progressively to the recipient — first contribution goes into their reserve, subsequent contributions go to their wallet immediately.
 
-**`contracts/AdasheCircle.sol` — add `claimableAmount` to `getPeriod` return values:**
+Let me be concrete about what this means in the 4-member, 5 USDC example:
+- B contributes → 5 USDC into recipient A's `reserveBalance` on-chain
+- C contributes → 5 USDC transferred to A's wallet immediately
+- D contributes → 5 USDC transferred to A's wallet immediately
+- A receives 10 USDC in wallet, 5 USDC in reserve. Total 15 USDC accounted for.
 
-In `getPeriod`, add `uint256 claimableAmount` as the 7th output (between `withheldAmount` and `participants`), returning `p.claimableAmount`. No other changes.
+### The accounting tension this creates
 
-**This requires redeployment.** Existing circles on `0xdfbb49541cea68d90c75ecfaf43574ee690a9740` are unaffected — they continue to operate on that contract. New circles use the new contract.
+This is the core problem I need to discuss with you before recommending an approach.
 
-### Test updates
+Under the current model, `reserveCredit = min(c.reserveAmount, totalCollected)`. For a full period with 3 contributions of 5 USDC each: `totalCollected = 15`, `reserveCredit = 5`, `netPayout = 10`. That is the intended result — A's wallet receives 10, reserve receives 5.
 
-The `getPeriod` return tuple changes from 7 to 8 elements. Any test that destructures `getPeriod` results needs to add the `claimableAmount` field at index 6 (between `withheldAmount` and `participants`).
+Under your proposed model, the same 15 USDC flows through the same destinations: 5 to reserve, 10 to wallet. **The amounts are identical.** The only difference is timing — the wallet transfers happen during the period rather than at finalization.
 
-### Frontend fixes
+But the problem arises when someone defaults. Suppose only B and C contribute:
+- B contributes → 5 USDC into A's reserve
+- C contributes → 5 USDC transferred to A's wallet immediately
+- D defaults
 
-**`src/components/circle/PayoutPanel.tsx`:**
-1. Fix destructuring of `getPeriod` result — add `claimableAmount` at index 6
-2. Use `claimableAmount > 0n` as the condition for showing "Claim Payout"
-3. Show the actual claimable amount in the UI
-4. Fix `handleClaim` — add `useWaitForTransactionReceipt` and `useQueryClient`; set success only after receipt confirms
-5. Show amount in the "Claim Payout" button label
+At finalization, `totalCollected = 10` (B + C's contributions plus any reserve coverage for D). The intended `netPayout = 10 - 5 = 5`. But A has already received **5 USDC** from C's contribution. The contract would need to know that 5 USDC has already been paid out and not pay it again. This means `p.progressivelyPaid` needs to be tracked, and `finalizePeriod` would compute `remainingPayout = netPayout - alreadyPaid`.
 
-**`src/components/circle/PeriodTimeline.tsx`:**
-Same destructuring fix — add `claimableAmount` at index 6.
+If D's reserve covers their default: `totalCollected = 15`, `reserveCredit = 5`, `netPayout = 10`. A already received 5, so `finalizePeriod` releases 5 more.
 
-**`src/components/circle/CurrentPeriod.tsx`:**
-Same destructuring fix — add `claimableAmount` at index 6 in the `getPeriod` tuple.
+If D defaults with no reserve: `totalCollected = 10`, `reserveCredit = 5`, `netPayout = 5`. A already received 5, `remainingPayout = 0`. No additional transfer.
 
-**`src/lib/schedule.ts`** and any other file that destructures `getPeriod` results — same fix.
+This is manageable but requires tracking `p.progressivelyPaid` as a new field.
 
-### ABI update
+### The deeper tension: when is the reserve funded?
 
-After `forge build`, the deploy tool updates `contracts/contract-metadata/AdasheCircle.json`. The `getPeriod` function in the ABI gains a new output `claimableAmount` at index 6. Update `src/lib/contract.ts` address fallback and `.env`.
+Your proposed model funds the reserve from B's contribution — the **first** contribution to arrive. But B's contribution arriving first is not guaranteed. What if C pays first and B pays second? Or if B pays and C defaults?
 
-Switch to Build mode to execute.
+The current model sidesteps this by computing the reserve from `totalCollected` at finalization, which is always deterministic. Your model ties the reserve to contribution arrival order, which is non-deterministic in time and subject to concurrent transactions.
+
+---
+
+## Implementation options
+
+### Option A: Progressive release via a new `claimProgressivePayout` function (recommended)
+
+Add a `claimProgressivePayout(circleId, periodIndex)` function that:
+1. Can be called by the recipient at any time during an active period (before `finalizePeriod`)
+2. Computes how much is safely releasable: `paid_so_far - reserveAmount` — the amount above the reserve threshold
+3. Transfers that amount to the recipient and records `p.progressivelyPaid`
+4. `finalizePeriod` deducts `p.progressivelyPaid` from `netPayout` before setting `p.claimableAmount`
+
+**How it handles the reserve:** The first `c.reserveAmount` of total contributions is always held back. The recipient can only claim above that threshold. So if 5 USDC have arrived and the reserve is 5 USDC, they can claim 0. When 10 have arrived, they can claim 5. When 15 have arrived, they can claim 10.
+
+**Why this is safe:**
+- Exact accounting — `p.progressivelyPaid` tracks every USDC already released
+- Default-safe — if contributions fall short, the amount already released is always ≤ actual contributions minus reserve, so the contract never owes more than it holds
+- No changes to `finalizePeriod`'s logic — it just subtracts `progressivelyPaid` from `netPayout` before setting `claimableAmount`
+- Recipient eligibility (debt check) runs at claim time, not at contribution time — same rule as today
+
+**The one accounting edge case:** If the recipient already has outstanding debt when they try to claim progressively, the claim reverts (same rule as `claimPayout`). This is correct — debt blocks payout.
+
+**What this is NOT:** It is not "first contribution to reserve, rest to wallet" in the way your description implies. The reserve is funded at finalization from `totalCollected`, not from specific individual contributions. The progressive release simply makes the **spendable** portion available earlier. The destination amounts are identical to today; only the timing changes.
+
+### Option B: Direct wallet transfer at contribution time (your described model)
+
+Each contribution after the first is wired directly to the recipient's wallet at `contribute()` time. The first contribution is credited to `p.pendingReserve` in the contract.
+
+**Problems with this approach:**
+- The contract transfers USDC out of escrow during `contribute()`, before knowing whether all contributors will pay. If 3 of 4 contributors have paid and the 4th defaults, the correct `netPayout` was 10 USDC but the contract already sent 10. Then at finalization, the defaulter's reserve covers their 5, making `totalCollected = 15` retroactively — the contract now owes 10 but already sent 10. This is correct. But if the defaulter has no reserve, `totalCollected = 10`, `netPayout = 5`, but 10 has already been sent. The contract is 5 short. It would have to claw back 5 from the recipient — which is not possible after a `safeTransfer`.
+- **This approach can make the contract insolvent in default scenarios.** It cannot be made safe without fundamental changes to how reserves and defaults work.
+
+**This approach should not be implemented.** It breaks the reserve's protection guarantee under any default scenario.
+
+### Option C: No contract change — frontend-only progressive display
+
+Show the running total of contributions received and let the recipient see how much will be available at finalization. No change to fund timing.
+
+**This solves the UX complaint partially** — the recipient can see money is arriving — but does not give them access to funds until finalization. This is not what you asked for.
+
+---
+
+## My recommendation
+
+**Option A is the correct and safe approach.**
+
+It achieves the goal — the recipient can claim their spendable funds progressively as contributions arrive, without waiting for all deadlines to pass — while preserving all existing financial invariants. The reserve is always held in the contract until finalization. No contribution is counted twice. No default scenario can make the contract insolvent.
+
+The contract change is modest:
+- New `Period` field: `uint256 progressivelyPaid`
+- New function: `claimProgressivePayout(uint256 circleId, uint256 periodIndex)` — callable any time during the period; releases `max(0, currentTotalPaid - reserveAmount - progressivelyPaid)` to recipient; requires recipient has no outstanding debt
+- Modified `finalizePeriod`: `netPayout = totalCollected - reserveCredit - p.progressivelyPaid` when setting `claimableAmount`
+
+---
+
+## The one design decision we need to agree on before implementation
+
+**Should the debt check apply to progressive claims?**
+
+Today, `claimPayout` requires `mr.debtBalance == 0`. If the recipient has outstanding debt from a prior period, their payout is withheld until the debt is settled.
+
+For progressive claims during a live period, two options:
+
+**Option A1 (same rule):** Progressive claim also requires `debtBalance == 0`. If you have any debt from a prior period, you cannot claim progressively until it is cleared. This is consistent, safe, and simple.
+
+**Option A2 (allow partial progressive release up to debt amount):** The recipient can claim, but the claimed amount is immediately applied against their outstanding debt rather than sent to their wallet. Complex, changes the debt-settlement flow significantly.
+
+**My recommendation: Option A1.** Keep the rule consistent — debt blocks all payouts including progressive ones. It is simpler, safer, and aligned with the existing principle that debt is the member's obligation to clear before receiving funds.
+
+Please confirm this, and also confirm whether you want the first `c.reserveAmount` to always be held back in the contract until finalization (my recommendation — it preserves the reserve's protective function), or whether you want the reserve to be immediately credited to `recipientRecord.reserveBalance` as contributions arrive (which would mean the recipient's reserve is available to them during the period, reducing the protection it provides).

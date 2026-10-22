@@ -165,7 +165,7 @@ contract AdasheCircleTest is Test {
     // ══════════════════════════════════════════════════════════════════════════
     function _skipPastFinalDeadline(uint256 cid) internal {
         uint8 cp = _circleCurrentPeriod(cid);
-        (, uint256 deadline, , , , , , ) = circle.getPeriod(cid, cp);
+        (, uint256 deadline, , , , , , , ) = circle.getPeriod(cid, cp);
         uint256 gp = _circleGracePeriod(cid);
         vm.warp(deadline + gp + 1);
     }
@@ -324,7 +324,7 @@ contract AdasheCircleTest is Test {
         uint256 cid = _createAndActivate3();
 
         // Period 0 recipient is creator (slot 0)
-        (address recipient0, , , , , , , ) = circle.getPeriod(cid, 0);
+        (address recipient0, , , , , , , , ) = circle.getPeriod(cid, 0);
         assertEq(recipient0, creator, "period 0 recipient should be creator");
 
         uint256 balanceBefore = usdc.balanceOf(creator);
@@ -425,7 +425,7 @@ contract AdasheCircleTest is Test {
     function test_contribute_RevertsAfterFinalDeadline() public {
         uint256 cid = _createAndActivate3();
 
-        (, uint256 dl, , , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl, , , , , , , ) = circle.getPeriod(cid, 0);
         vm.warp(dl + GRACE_PERIOD + 1);
 
         vm.prank(alice);
@@ -825,7 +825,7 @@ contract AdasheCircleTest is Test {
         assertEq(uint8(_circleStatus(cid)), uint8(AdasheCircle.CircleStatus.COMPLETED));
 
         // bob's payout was withheld because bob has debt
-        (, , , , bool payoutWithheld, , , ) = circle.getPeriod(cid, 2);
+        (, , , , bool payoutWithheld, , , , ) = circle.getPeriod(cid, 2);
         assertTrue(payoutWithheld, "bob payout should be withheld");
 
         MemberView memory bobBefore = _getMember(cid, bob);
@@ -1026,7 +1026,7 @@ contract AdasheCircleTest is Test {
         uint256 cid = _createAndActivate3();
         uint256 st = _circleStartTime(cid);
 
-        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , , ) = circle.getPeriod(cid, 0);
         // Period 0 deadline = weekdayAnchor(startTime, weekday) + 7 days
         // anchor >= startTime, so deadline >= startTime + 7 days
         assertGt(dl0, st,            "period 0 deadline should be > startTime");
@@ -1044,7 +1044,7 @@ contract AdasheCircleTest is Test {
         _skipPastFinalDeadline(cid);
         circle.finalizePeriod(cid);
 
-        (, uint256 dl1, , , , , , ) = circle.getPeriod(cid, 1);
+        (, uint256 dl1, , , , , , , ) = circle.getPeriod(cid, 1);
 
         // period 1 deadline = weekdayAnchor + 2*7days
         // should be in [startTime + 13d, startTime + 21d]
@@ -1077,7 +1077,7 @@ contract AdasheCircleTest is Test {
         vm.warp(jan15);
         uint256 cid = _activateMonthly(15);
 
-        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , , ) = circle.getPeriod(cid, 0);
         // Feb 15, 2025 00:00:00 UTC = 1739577600
         assertEq(dl0, 1739577600, "period 0 deadline should be Feb 15 2025");
         assertGt(dl0, _circleStartTime(cid), "period 0 deadline should be > startTime");
@@ -1095,7 +1095,7 @@ contract AdasheCircleTest is Test {
         vm.warp(feb15 + GRACE_PERIOD + 1);
         circle.finalizePeriod(cid); // no contributions → claimable=0 (ok for this test)
 
-        (, uint256 dl1, , , , , , ) = circle.getPeriod(cid, 1);
+        (, uint256 dl1, , , , , , , ) = circle.getPeriod(cid, 1);
 
         // Mar 15, 2025 00:00:00 UTC = 1742000400 (= 1739577600 + 31 days? let's compute)
         // _monthlyDeadline(jan15, 15, 2): month index = (1-1)+2=2, year=2025, month=3, day=15
@@ -1116,7 +1116,7 @@ contract AdasheCircleTest is Test {
         vm.warp(feb28 + GRACE_PERIOD + 1);
         circle.finalizePeriod(cid);
 
-        (, uint256 dl1, , , , , , ) = circle.getPeriod(cid, 1);
+        (, uint256 dl1, , , , , , , ) = circle.getPeriod(cid, 1);
 
         // _monthlyDeadline(jan31, 31, 2): month index=(1-1)+2=2, year=2025, month=3, day=31
         // Mar 31, 2025 UTC = 1743379200 + ? let's compute from Feb 28:
@@ -1177,7 +1177,7 @@ contract AdasheCircleTest is Test {
             circle.contribute(cid, 0);
         }
 
-        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , , ) = circle.getPeriod(cid, 0);
         vm.warp(dl0 + GRACE_PERIOD + 1);
         circle.finalizePeriod(cid);
 
@@ -1256,7 +1256,7 @@ contract AdasheCircleTest is Test {
         vm.prank(alice); rCircle.contribute(cid, 0);
         vm.prank(bob);   rCircle.contribute(cid, 0);
 
-        (, uint256 dl, , , , , , ) = rCircle.getPeriod(cid, 0);
+        (, uint256 dl, , , , , , , ) = rCircle.getPeriod(cid, 0);
         vm.warp(dl + GRACE_PERIOD + 1);
         rCircle.finalizePeriod(cid);
 
@@ -1393,7 +1393,7 @@ contract AdasheCircleTest is Test {
         circle.executeReplacement(cid, bob);
 
         // ASSERT 1: period.recipient updated to newBob
-        (address periodRecipient, , , , , , , ) = circle.getPeriod(cid, 2);
+        (address periodRecipient, , , , , , , , ) = circle.getPeriod(cid, 2);
         assertEq(periodRecipient, newBob, "period 2 recipient should be newBob after replacement");
 
         // ASSERT 2: bob is no longer in payoutOrder
@@ -1427,7 +1427,7 @@ contract AdasheCircleTest is Test {
         // netPayout = CONTRIBUTION - CONTRIBUTION = 0.
         // newBob has no debt, but claimable = 0 → claimPayout reverts "no claimable payout".
         // The circle is still consistent and completed.
-        (, , , bool payoutReleased, , , , ) = circle.getPeriod(cid, 2);
+        (, , , bool payoutReleased, , , , , ) = circle.getPeriod(cid, 2);
         assertFalse(payoutReleased, "period 2 payout not yet released");
     }
 
@@ -1511,7 +1511,7 @@ contract AdasheCircleTest is Test {
         // Circle COMPLETED; dan has 2×CONTRIBUTION debt; payout withheld
         assertEq(uint8(_circleStatus(cid)), uint8(AdasheCircle.CircleStatus.COMPLETED));
 
-        (, , , , bool withheld3, , , ) = circle.getPeriod(cid, 3);
+        (, , , , bool withheld3, , , , ) = circle.getPeriod(cid, 3);
         assertTrue(withheld3, "dan period 3 payout should be withheld");
 
         // ── First settlement: settle debt from period 1 ─────────────────────
@@ -1522,7 +1522,7 @@ contract AdasheCircleTest is Test {
         assertEq(danMid.debtBalance, CONTRIBUTION, "dan should still have 1x debt after partial settle");
 
         // Period 3 must still be withheld (debt remains)
-        (, , , bool released3Mid, bool withheld3Mid, , , ) = circle.getPeriod(cid, 3);
+        (, , , bool released3Mid, bool withheld3Mid, , , , ) = circle.getPeriod(cid, 3);
         assertFalse(released3Mid, "period 3 should NOT be released after partial settle");
         assertTrue(withheld3Mid,  "period 3 should still be withheld after partial settle");
 
@@ -1534,7 +1534,7 @@ contract AdasheCircleTest is Test {
         assertEq(danFinal.debtBalance, 0, "dan debt fully cleared after second settle");
 
         // Period 3 must now be released
-        (, , , bool released3Final, bool withheld3Final, , , ) = circle.getPeriod(cid, 3);
+        (, , , bool released3Final, bool withheld3Final, , , , ) = circle.getPeriod(cid, 3);
         assertTrue(released3Final,  "period 3 should be released after full settle");
         assertFalse(withheld3Final, "period 3 should not be withheld after full settle");
     }
@@ -1651,7 +1651,7 @@ contract AdasheCircleTest is Test {
         uint256 startTime = _circleStartTime(cid);
 
         // Period 0 deadline == startTime + 1 day  (n = periodIndex+1 = 1)
-        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , , ) = circle.getPeriod(cid, 0);
         assertEq(dl0, startTime + 1 days, "period 0 deadline should be startTime + 1 day for daily");
 
         // Finalize period 0 to initialize period 1
@@ -1663,7 +1663,7 @@ contract AdasheCircleTest is Test {
         circle.finalizePeriod(cid);
 
         // Period 1 deadline == startTime + 2 days  (n = periodIndex+1 = 2)
-        (, uint256 dl1, , , , , , ) = circle.getPeriod(cid, 1);
+        (, uint256 dl1, , , , , , , ) = circle.getPeriod(cid, 1);
         assertEq(dl1, startTime + 2 days, "period 1 deadline should be startTime + 2 days for daily");
     }
 
@@ -1851,7 +1851,7 @@ contract AdasheCircleTest is Test {
         vm.prank(creator); circle.startCircle(cid);
 
         uint256 st = _circleStartTime(cid);
-        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , , ) = circle.getPeriod(cid, 0);
         assertEq(dl0, st + 1 days, "DAILY period 0 deadline should be startTime + 1 day");
     }
 
@@ -1871,7 +1871,7 @@ contract AdasheCircleTest is Test {
         vm.prank(creator); circle.startCircle(cid);
 
         uint256 st = _circleStartTime(cid);
-        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , , ) = circle.getPeriod(cid, 0);
         // deadline = weekdayAnchor(st, 0) + 7 days
         // anchor >= st, so deadline >= st + 7 days
         assertGt(dl0, st,           "WEEKLY period 0 deadline should be > startTime");
@@ -1896,7 +1896,7 @@ contract AdasheCircleTest is Test {
         vm.prank(bob);   circle.joinCircle(cid);
         vm.prank(creator); circle.startCircle(cid);
 
-        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , , ) = circle.getPeriod(cid, 0);
         // _monthlyDeadline(jan15, 15, 1) = Feb 15, 2025 00:00:00 UTC = 1739577600
         assertEq(dl0, 1739577600, "MONTHLY period 0 deadline should be Feb 15 2025");
         assertGt(dl0, jan15, "MONTHLY period 0 deadline should be > startTime");
@@ -1945,7 +1945,7 @@ contract AdasheCircleTest is Test {
     function test_finalizePeriod_revertsBeforeGraceExpiry() public {
         uint256 cid = _createAndActivate3(); // WEEKLY, grace = 72h
         uint8 cp = _circleCurrentPeriod(cid);
-        (, uint256 deadline, , , , , , ) = circle.getPeriod(cid, cp);
+        (, uint256 deadline, , , , , , , ) = circle.getPeriod(cid, cp);
         uint256 gracePeriod = _circleGracePeriod(cid); // 72 hours
 
         // Warp to exactly 1 second before the final deadline expires
@@ -1963,7 +1963,7 @@ contract AdasheCircleTest is Test {
     function test_finalizePeriod_succeedsAfterGraceExpiry() public {
         uint256 cid = _createAndActivate3(); // WEEKLY, grace = 72h
         uint8 cp = _circleCurrentPeriod(cid);
-        (, uint256 deadline, , , , , , ) = circle.getPeriod(cid, cp);
+        (, uint256 deadline, , , , , , , ) = circle.getPeriod(cid, cp);
         uint256 gracePeriod = _circleGracePeriod(cid); // 72 hours
 
         // Contribute before deadline
@@ -1978,5 +1978,289 @@ contract AdasheCircleTest is Test {
 
         // Circle advanced to period 1
         assertEq(_circleCurrentPeriod(cid), 1, "circle should have advanced to period 1");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 49. claimProgressivePayout: only 1 contributor paid (= reserveAmount),
+    //     spendable == 0 → reverts "nothing new to claim"
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_claimProgressivePayout_OneContributorPaid_ReserveFull_NoRelease() public {
+        // 3-member circle [creator(0), alice(1), bob(2)]; alice is period-1 recipient.
+        // We want alice as recipient of period 0 — use order [alice, creator, bob].
+        address[] memory order = new address[](3);
+        order[0] = alice;
+        order[1] = creator;
+        order[2] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("PP1", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+        // creator is auto-joined (creator is in slot 1 of payout order)
+        vm.prank(alice); circle.joinCircle(cid);
+        vm.prank(bob);   circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        // alice is period-0 recipient; only creator contributes (100e6 paid = reserveAmount → spendable=0)
+        vm.prank(creator); circle.contribute(cid, 0);
+
+        // alice calls claimProgressivePayout → should revert "nothing new to claim"
+        vm.prank(alice);
+        vm.expectRevert(bytes("nothing new to claim"));
+        circle.claimProgressivePayout(cid, 0);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 50. claimProgressivePayout: 2 contributors paid → releases amount above reserve
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_claimProgressivePayout_TwoContributorsPaid_ReleasesAboveReserve() public {
+        // Order [alice(0), creator(1), bob(2)] — alice is period-0 recipient.
+        address[] memory order = new address[](3);
+        order[0] = alice;
+        order[1] = creator;
+        order[2] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("PP2", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        // creator and bob both contribute: paidSoFar=200e6, reserve=100e6, spendable=100e6
+        vm.prank(creator); circle.contribute(cid, 0);
+        vm.prank(bob);     circle.contribute(cid, 0);
+
+        uint256 aliceBalBefore = usdc.balanceOf(alice);
+
+        vm.prank(alice);
+        circle.claimProgressivePayout(cid, 0);
+
+        uint256 aliceBalAfter = usdc.balanceOf(alice);
+        assertEq(aliceBalAfter - aliceBalBefore, CONTRIBUTION, "alice should receive 100e6 progressively");
+
+        // p.progressivelyPaid should now be 100e6
+        (, , , , , , , uint256 progPaid, ) = circle.getPeriod(cid, 0);
+        assertEq(progPaid, CONTRIBUTION, "progressivelyPaid should be 100e6");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 51. claimProgressivePayout: reverts if caller is not the recipient
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_claimProgressivePayout_RevertsIfNotRecipient() public {
+        // Standard 3-member circle: period-0 recipient = creator
+        uint256 cid = _createAndActivate3();
+
+        vm.prank(alice); circle.contribute(cid, 0);
+        vm.prank(bob);   circle.contribute(cid, 0);
+
+        // creator is the period-0 recipient; bob tries to claim → should revert "not recipient"
+        vm.prank(bob);
+        vm.expectRevert(bytes("not recipient"));
+        circle.claimProgressivePayout(cid, 0);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 52. claimProgressivePayout: reverts if caller has outstanding debt
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_claimProgressivePayout_RevertsIfDebtOutstanding() public {
+        // Give alice debt by running a circle where she defaults, then use a second
+        // circle where alice is the period-0 recipient.
+
+        // Circle A: standard [creator, alice, bob]; alice defaults in period 0
+        uint256 cidA = _createAndActivate3();
+        // alice is a contributor in period 0 (creator is recipient); alice doesn't pay → defaults
+        vm.prank(bob); circle.contribute(cidA, 0);
+        _skipPastFinalDeadline(cidA);
+        circle.finalizePeriod(cidA);
+        MemberView memory aliceMvA = _getMember(cidA, alice);
+        assertGt(aliceMvA.debtBalance, 0, "alice should have debt in circle A");
+
+        // Circle B: [alice, creator, bob] — alice is period-0 recipient — SAME circle contract
+        // but alice now has debtBalance > 0 in circle A. Each circle is independent, though.
+        // We need alice to have debt in the SAME circle where she calls claimProgressivePayout.
+        // So: use circle A, advance to period 1 (alice is recipient), and call claimProgressivePayout.
+
+        // In circle A after period 0:
+        //   - creator is recipient (period 0 done)
+        //   - period 1 recipient = alice
+        // alice has debtBalance > 0 in circle A
+        vm.prank(creator); circle.contribute(cidA, 1);
+        // bob is a contributor in period 1; bob contributes too
+        vm.prank(bob); circle.contribute(cidA, 1);
+
+        // alice is the period-1 recipient AND has debt
+        vm.prank(alice);
+        vm.expectRevert(bytes("debt outstanding"));
+        circle.claimProgressivePayout(cidA, 1);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 53. claimProgressivePayout: second call with nothing new → reverts
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_claimProgressivePayout_RevertsIfAlreadyClaimedAll() public {
+        // Order [alice, creator, bob] — alice is period-0 recipient
+        address[] memory order = new address[](3);
+        order[0] = alice;
+        order[1] = creator;
+        order[2] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("PP3", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        // Both non-recipients contribute: spendable = 200e6 - 100e6 = 100e6
+        vm.prank(creator); circle.contribute(cid, 0);
+        vm.prank(bob);     circle.contribute(cid, 0);
+
+        // First claim succeeds
+        vm.prank(alice);
+        circle.claimProgressivePayout(cid, 0);
+
+        // Second call: spendable still 100e6, alreadyClaimed=100e6 → nothing new
+        vm.prank(alice);
+        vm.expectRevert(bytes("nothing new to claim"));
+        circle.claimProgressivePayout(cid, 0);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 54. finalizePeriod deducts progressivelyPaid from claimableAmount
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_finalizePeriod_DeductsProgressivelyPaid() public {
+        // Order [alice, creator, bob] — alice is period-0 recipient
+        address[] memory order = new address[](3);
+        order[0] = alice;
+        order[1] = creator;
+        order[2] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("FPP1", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        // Both non-recipients contribute
+        vm.prank(creator); circle.contribute(cid, 0);
+        vm.prank(bob);     circle.contribute(cid, 0);
+
+        // alice claims progressively: gets 100e6 (200e6 paid - 100e6 reserve)
+        vm.prank(alice);
+        circle.claimProgressivePayout(cid, 0);
+
+        // Warp past grace and finalize
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+
+        // netPayout = 200e6 - 100e6 reserve = 100e6; progressivelyPaid = 100e6
+        // claimableAmount = 100e6 - 100e6 = 0
+        (, , , , , , uint256 claimAmt, uint256 progPaid, ) = circle.getPeriod(cid, 0);
+        assertEq(claimAmt, 0,            "claimableAmount should be 0 after progressive claim covers all");
+        assertEq(progPaid, CONTRIBUTION, "progressivelyPaid should be 100e6");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 55. finalizePeriod: partial progressive claim → remaining still claimable
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_finalizePeriod_PartialProgressive_RemainingClaimable() public {
+        // 4-member circle [carol, creator, alice, bob]; carol is period-0 recipient.
+        // 3 non-recipients: creator, alice, bob each contribute 50e6.
+        // After 2 contributors pay (100e6 total): spendable = 100e6 - 50e6 reserve = 50e6.
+        // carol claims 50e6 progressively.
+        // 3rd contributor pays: totalCollected=150e6.
+        // finalizePeriod: netPayout=150e6-50e6=100e6; progressivelyPaid=50e6; claimable=50e6.
+        // carol can still claimPayout for 50e6.
+
+        uint256 contrib = 50e6;
+        address carol = makeAddr("carol");
+        _fund(carol, 10_000e6);
+
+        address[] memory order = new address[](4);
+        order[0] = carol;
+        order[1] = creator;
+        order[2] = alice;
+        order[3] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("FPP2", contrib, 4, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+        vm.prank(carol);   circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        // Two contributors pay: 100e6 total; reserveAmount=50e6; spendable=50e6
+        vm.prank(creator); circle.contribute(cid, 0);
+        vm.prank(alice);   circle.contribute(cid, 0);
+
+        // carol claims progressively: receives 50e6
+        uint256 carolBalBefore = usdc.balanceOf(carol);
+        vm.prank(carol);
+        circle.claimProgressivePayout(cid, 0);
+        assertEq(usdc.balanceOf(carol) - carolBalBefore, 50e6, "carol should receive 50e6 progressively");
+
+        // Third contributor pays
+        vm.prank(bob); circle.contribute(cid, 0);
+
+        // Warp past grace and finalize
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+
+        // netPayout = 150e6 - 50e6 = 100e6; progressivelyPaid = 50e6; claimable = 50e6
+        (, , , , , , uint256 claimAmt, uint256 progPaid, ) = circle.getPeriod(cid, 0);
+        assertEq(progPaid, 50e6,  "progressivelyPaid should be 50e6");
+        assertEq(claimAmt, 50e6,  "claimableAmount should be 50e6 (remainder after progressive)");
+
+        // carol can still claim the remaining 50e6 via claimPayout
+        uint256 carolBalMid = usdc.balanceOf(carol);
+        vm.prank(carol);
+        circle.claimPayout(cid, 0);
+        assertEq(usdc.balanceOf(carol) - carolBalMid, 50e6, "carol should receive remaining 50e6 via claimPayout");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 56. claimProgressivePayout only counts PAID/LATE_PAID, not defaulted
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_claimProgressivePayout_OnlyCountsPaidNotDefaulted() public {
+        // 3-member circle [creator(0), alice(1), bob(2)], creator is period-0 recipient.
+        // Only creator contributes (wait, creator is recipient — only alice and bob contribute).
+        // Rearrange so alice is recipient and we have creator + bob as potential contributors.
+        // Order [alice, creator, bob] — alice is period-0 recipient.
+        address[] memory order = new address[](3);
+        order[0] = alice;
+        order[1] = creator;
+        order[2] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("PP4", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        // Only creator pays; bob does NOT pay (will default after deadline).
+        vm.prank(creator); circle.contribute(cid, 0);
+
+        // paidSoFar = 100e6 (only creator; bob is PENDING/defaulted → not counted)
+        // spendable = 100e6 - 100e6 reserve = 0 → revert "nothing new to claim"
+        vm.prank(alice);
+        vm.expectRevert(bytes("nothing new to claim"));
+        circle.claimProgressivePayout(cid, 0);
+
+        // Warp past deadline; bob defaults; finalize
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+
+        // bob should have debt (no reserve)
+        MemberView memory bobMv = _getMember(cid, bob);
+        assertGt(bobMv.debtBalance, 0, "bob should have debt after defaulting");
+
+        // alice's claimableAmount = 0 (totalCollected=100e6, reserve=100e6, net=0)
+        (, , , , , , uint256 claimAmt, , ) = circle.getPeriod(cid, 0);
+        assertEq(claimAmt, 0, "alice claimableAmount should be 0 when only reserve covered");
     }
 }

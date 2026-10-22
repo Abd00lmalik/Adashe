@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0x1cb80c3a60043272f939cb3b6268eb4bf359a92c",
+  "contractAddress": "0x2891663ecf025c98f2a3128106f48691f86c5910",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/AdasheCircle.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/AdasheCircle.sol/AdasheCircle.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x1cb80c3a60043272f939cb3b6268eb4bf359a92c"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x2891663ecf025c98f2a3128106f48691f86c5910"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0x2891663ecf025c98f2a3128106f48691f86c5910",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0x2891663ecf025c98f2a3128106f48691f86c5910",
+      "txHash": "0x9624a7cbaa8a2fd2ff0b6941efa5bbcb440c0cc8a0fb01eb2f46610d2a11b447",
+      "deployedAt": "2026-10-22T14:30:55.001Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0x1cb80c3a60043272f939cb3b6268eb4bf359a92c",
@@ -348,6 +355,24 @@
     },
     {
       "type": "function",
+      "name": "claimProgressivePayout",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "periodIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "claimReserveRefund",
       "inputs": [
         {
@@ -619,6 +644,11 @@
         },
         {
           "name": "claimableAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "progressivelyPaid",
           "type": "uint256",
           "internalType": "uint256"
         },

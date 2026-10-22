@@ -85,6 +85,7 @@ contract AdasheCircle is ReentrancyGuard {
         bool payoutWithheld;
         uint256 withheldAmount;
         uint256 claimableAmount;
+        uint256 progressivelyPaid;
         bool initialized;
         address[] participants;
         mapping(address => ContributionRecord) contributions;
@@ -344,6 +345,51 @@ contract AdasheCircle is ReentrancyGuard {
         emit ContributionPaid(circleId, periodIndex, msg.sender, c.contributionAmount, cr.status);
     }
 
+    /// @notice Claim the portion of your payout that is already funded and above the reserve threshold.
+    /// Can be called any time during an active period as contributions arrive.
+    /// The first c.reserveAmount of contributions is always held in contract until finalizePeriod.
+    /// Requires the caller to have no outstanding debt (Option A1).
+    function claimProgressivePayout(uint256 circleId, uint256 periodIndex) external nonReentrant {
+        Circle storage c = _requireCircle(circleId);
+        require(c.status == CircleStatus.ACTIVE, "circle not active");
+        require(periodIndex == c.currentPeriod, "not current period");
+
+        Period storage p = _periods[circleId][periodIndex];
+        require(p.initialized, "period not initialized");
+        require(msg.sender == p.recipient, "not recipient");
+        require(!p.payoutReleased, "period already finalized");
+
+        MemberRecord storage mr = memberRecords[circleId][msg.sender];
+        require(mr.debtBalance == 0, "debt outstanding");
+
+        // Tally all contributions paid so far in this period.
+        uint256 paidSoFar = 0;
+        for (uint256 i = 0; i < p.participants.length; i++) {
+            address member = p.participants[i];
+            if (member == p.recipient) continue;
+            ContributionRecord storage cr = p.contributions[member];
+            if (
+                cr.status == ContributionStatus.PAID ||
+                cr.status == ContributionStatus.LATE_PAID
+            ) {
+                paidSoFar += cr.paidAmount;
+            }
+        }
+
+        // Reserve threshold: the first c.reserveAmount of contributions is held back.
+        // The recipient can only claim above that threshold.
+        uint256 spendable = paidSoFar > c.reserveAmount ? paidSoFar - c.reserveAmount : 0;
+        uint256 alreadyClaimed = p.progressivelyPaid;
+        require(spendable > alreadyClaimed, "nothing new to claim");
+
+        uint256 releasable = spendable - alreadyClaimed;
+        p.progressivelyPaid += releasable;
+
+        usdc.safeTransfer(msg.sender, releasable);
+
+        emit PayoutReleased(circleId, periodIndex, msg.sender, releasable);
+    }
+
     function repayDebt(uint256 circleId, uint256 periodIndex) external nonReentrant {
         Circle storage c = _requireCircle(circleId);
         require(c.status == CircleStatus.ACTIVE || c.status == CircleStatus.COMPLETED, "invalid circle status");
@@ -490,7 +536,9 @@ contract AdasheCircle is ReentrancyGuard {
         uint256 netPayout = totalCollected - reserveCredit;
 
         recipientRecord.reserveBalance += reserveCredit;
-        p.claimableAmount = netPayout;
+        // Deduct any amount already claimed progressively during the period.
+        uint256 remainingPayout = netPayout > p.progressivelyPaid ? netPayout - p.progressivelyPaid : 0;
+        p.claimableAmount = remainingPayout;
 
         if (recipientRecord.debtBalance > 0) {
             p.payoutWithheld = true;
@@ -802,6 +850,7 @@ contract AdasheCircle is ReentrancyGuard {
             bool payoutWithheld,
             uint256 withheldAmount,
             uint256 claimableAmount,
+            uint256 progressivelyPaid,
             address[] memory participants
         )
     {
@@ -814,6 +863,7 @@ contract AdasheCircle is ReentrancyGuard {
             p.payoutWithheld,
             p.withheldAmount,
             p.claimableAmount,
+            p.progressivelyPaid,
             p.participants
         );
     }

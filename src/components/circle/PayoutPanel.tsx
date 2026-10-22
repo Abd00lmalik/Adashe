@@ -58,15 +58,16 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
     }
   }, [claimConfirmed, claimFailed, claimHash, queryClient, refetch])
 
-  // getPeriod returns 8 values:
+  // getPeriod returns 9 values (v10):
   // [0] recipient: address
   // [1] deadline: uint256
   // [2] grossEntitlement: uint256
   // [3] payoutReleased: bool
   // [4] payoutWithheld: bool
   // [5] withheldAmount: uint256
-  // [6] claimableAmount: uint256   ← added in v9
-  // [7] participants: address[]
+  // [6] claimableAmount: uint256
+  // [7] progressivelyPaid: uint256  ← added in v10
+  // [8] participants: address[]
   const claimablePeriods = (periodsData ?? [])
     .map((pd, i) => {
       if (pd.status !== 'success') return null
@@ -76,9 +77,10 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
       const payoutWithheld = result[4] as boolean
       const withheldAmount = result[5] as bigint
       const claimableAmount = result[6] as bigint
+      const progressivelyPaid = result[7] as bigint
 
       if (!sameAddress(recipient, address)) return null
-      return { periodIndex: i, payoutReleased, payoutWithheld, withheldAmount, claimableAmount }
+      return { periodIndex: i, payoutReleased, payoutWithheld, withheldAmount, claimableAmount, progressivelyPaid }
     })
     .filter(Boolean)
 
@@ -132,13 +134,16 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
       <CardContent className="space-y-4">
         {activePeriods.map((cp) => {
           if (!cp) return null
-          const { periodIndex, payoutReleased, payoutWithheld, withheldAmount, claimableAmount } = cp
+          const { periodIndex, payoutReleased, payoutWithheld, withheldAmount, claimableAmount, progressivelyPaid } = cp
 
           if (payoutReleased) {
             return (
               <div key={periodIndex} className="flex items-center gap-2 text-sm text-success">
                 <CheckCircle2 className="h-4 w-4" />
                 Period {periodIndex + 1} payout claimed
+                {progressivelyPaid > 0n && (
+                  <span className="text-xs text-muted ml-1">(incl. <UsdcAmount amount={progressivelyPaid} /> claimed progressively)</span>
+                )}
               </div>
             )
           }
@@ -166,10 +171,15 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
           }
 
           if (claimableAmount === 0n) {
-            // Period finalized but claimableAmount is zero — period still open or not yet finalized
+            // Period still open — claimableAmount set only after finalizePeriod
             return (
-              <div key={periodIndex} className="rounded-xl bg-surface border p-4 text-sm text-muted">
-                Period {periodIndex + 1}: waiting for period to be finalized before payout is available.
+              <div key={periodIndex} className="rounded-xl bg-surface border p-4 text-sm text-muted space-y-1">
+                <p>Period {periodIndex + 1}: waiting for period to be finalized before remaining payout is available.</p>
+                {progressivelyPaid > 0n && (
+                  <p className="text-xs text-forest font-medium">
+                    <UsdcAmount amount={progressivelyPaid} /> already claimed progressively during this period.
+                  </p>
+                )}
               </div>
             )
           }

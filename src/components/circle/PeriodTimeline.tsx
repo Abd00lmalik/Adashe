@@ -54,7 +54,7 @@ export function PeriodTimeline({ cid, circleRaw, address }: PeriodTimelineProps)
     <div className="space-y-3">
       {Array.from({ length: memberCount }, (_, i) => {
         const pd = periodsData?.[i]?.status === 'success'
-          ? (periodsData[i].result as [string, bigint, bigint, boolean, boolean, bigint, bigint, string[]])
+          ? (periodsData[i].result as [string, bigint, bigint, boolean, boolean, bigint, bigint, bigint, string[]])
           : null
 
         // Safe per-field access: pd may be null or a shorter tuple if the call failed.
