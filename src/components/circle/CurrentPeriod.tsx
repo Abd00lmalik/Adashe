@@ -58,6 +58,14 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   const [finalizeTxState, setFinalizeTxState] = useState<TxState>({ status: 'idle' })
   const [progressiveTxState, setProgressiveTxState] = useState<TxState>({ status: 'idle' })
 
+  // Optimistic local state: tracks the amount claimed progressively this session.
+  // Used to hide the claim button immediately after a confirmed receipt, before the
+  // query cache has refreshed with the new on-chain progressivelyPaid value.
+  // Initialise to 0n; after a confirmed claim we set it to maxSpendable so the
+  // button hides instantly. The next refetch overwrites periodData with real chain
+  // data and this local override becomes a no-op.
+  const [localProgressivelyClaimed, setLocalProgressivelyClaimed] = useState(0n)
+
   // Tx hashes for receipt watchers
   const [contributeHash, setContributeHash] = useState<`0x${string}` | undefined>()
   const [finalizeHash, setFinalizeHash] = useState<`0x${string}` | undefined>()
@@ -112,6 +120,16 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
     if (progressiveConfirmed && progressiveHash) {
       setProgressiveTxState({ status: 'success', hash: progressiveHash })
       toast.success('Progressive payout claimed!')
+      // Optimistically mark the full spendable entitlement as claimed so the
+      // button hides immediately — before the query cache refreshes.
+      // maxSpendable is computed below from periodData; capture it here via a
+      // functional update to avoid a stale-closure reference.
+      setLocalProgressivelyClaimed((prev) => {
+        const gs = periodData ? (periodData[2] as bigint) : 0n
+        const ra = reserveAmount
+        const ms = gs > ra ? gs - ra : 0n
+        return ms > prev ? ms : prev
+      })
       queryClient.invalidateQueries()
       refetch()
       setProgressiveHash(undefined)
@@ -120,7 +138,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
       setProgressiveTxState({ status: 'error', message: 'No additional funds available to claim yet.' })
       setProgressiveHash(undefined)
     }
-  }, [progressiveConfirmed, progressiveFailed, progressiveHash, queryClient, refetch])
+  }, [progressiveConfirmed, progressiveFailed, progressiveHash, queryClient, refetch, periodData, reserveAmount])
 
   if ((status as unknown as number) === CircleStatus.PENDING) {
     return (
@@ -184,9 +202,16 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   const maxSpendable = (grossEntitlement as bigint) > reserveAmount
     ? (grossEntitlement as bigint) - reserveAmount
     : 0n
-  const alreadyProgressivelyClaimed = progressivelyPaid as bigint
-  const progressiveAvailableNow = maxSpendable > alreadyProgressivelyClaimed
-    ? maxSpendable - alreadyProgressivelyClaimed
+  // Use the larger of the on-chain value and the optimistic local value so that
+  // the button hides immediately after a confirmed claim, even before the query
+  // cache has refreshed with the updated progressivelyPaid from the chain.
+  const chainProgressivelyPaid = progressivelyPaid as bigint
+  const effectiveProgressivelyClaimed = chainProgressivelyPaid > localProgressivelyClaimed
+    ? chainProgressivelyPaid
+    : localProgressivelyClaimed
+  const alreadyProgressivelyClaimed = effectiveProgressivelyClaimed
+  const progressiveAvailableNow = maxSpendable > effectiveProgressivelyClaimed
+    ? maxSpendable - effectiveProgressivelyClaimed
     : 0n
   // Show button when: recipient, period not finalized, and there is still spendable entitlement left
   const canClaimProgressively = isRecipient && !(payoutReleased as boolean) && progressiveAvailableNow > 0n
