@@ -801,6 +801,7 @@ contract AdasheCircle is ReentrancyGuard {
             bool payoutReleased,
             bool payoutWithheld,
             uint256 withheldAmount,
+            uint256 claimableAmount,
             address[] memory participants
         )
     {
@@ -812,6 +813,7 @@ contract AdasheCircle is ReentrancyGuard {
             p.payoutReleased,
             p.payoutWithheld,
             p.withheldAmount,
+            p.claimableAmount,
             p.participants
         );
     }

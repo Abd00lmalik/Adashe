@@ -165,7 +165,7 @@ contract AdasheCircleTest is Test {
     // ══════════════════════════════════════════════════════════════════════════
     function _skipPastFinalDeadline(uint256 cid) internal {
         uint8 cp = _circleCurrentPeriod(cid);
-        (, uint256 deadline, , , , , ) = circle.getPeriod(cid, cp);
+        (, uint256 deadline, , , , , , ) = circle.getPeriod(cid, cp);
         uint256 gp = _circleGracePeriod(cid);
         vm.warp(deadline + gp + 1);
     }
@@ -324,7 +324,7 @@ contract AdasheCircleTest is Test {
         uint256 cid = _createAndActivate3();
 
         // Period 0 recipient is creator (slot 0)
-        (address recipient0, , , , , , ) = circle.getPeriod(cid, 0);
+        (address recipient0, , , , , , , ) = circle.getPeriod(cid, 0);
         assertEq(recipient0, creator, "period 0 recipient should be creator");
 
         uint256 balanceBefore = usdc.balanceOf(creator);
@@ -425,7 +425,7 @@ contract AdasheCircleTest is Test {
     function test_contribute_RevertsAfterFinalDeadline() public {
         uint256 cid = _createAndActivate3();
 
-        (, uint256 dl, , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl, , , , , , ) = circle.getPeriod(cid, 0);
         vm.warp(dl + GRACE_PERIOD + 1);
 
         vm.prank(alice);
@@ -825,7 +825,7 @@ contract AdasheCircleTest is Test {
         assertEq(uint8(_circleStatus(cid)), uint8(AdasheCircle.CircleStatus.COMPLETED));
 
         // bob's payout was withheld because bob has debt
-        (, , , , bool payoutWithheld, , ) = circle.getPeriod(cid, 2);
+        (, , , , bool payoutWithheld, , , ) = circle.getPeriod(cid, 2);
         assertTrue(payoutWithheld, "bob payout should be withheld");
 
         MemberView memory bobBefore = _getMember(cid, bob);
@@ -1026,7 +1026,7 @@ contract AdasheCircleTest is Test {
         uint256 cid = _createAndActivate3();
         uint256 st = _circleStartTime(cid);
 
-        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
         // Period 0 deadline = weekdayAnchor(startTime, weekday) + 7 days
         // anchor >= startTime, so deadline >= startTime + 7 days
         assertGt(dl0, st,            "period 0 deadline should be > startTime");
@@ -1044,7 +1044,7 @@ contract AdasheCircleTest is Test {
         _skipPastFinalDeadline(cid);
         circle.finalizePeriod(cid);
 
-        (, uint256 dl1, , , , , ) = circle.getPeriod(cid, 1);
+        (, uint256 dl1, , , , , , ) = circle.getPeriod(cid, 1);
 
         // period 1 deadline = weekdayAnchor + 2*7days
         // should be in [startTime + 13d, startTime + 21d]
@@ -1077,7 +1077,7 @@ contract AdasheCircleTest is Test {
         vm.warp(jan15);
         uint256 cid = _activateMonthly(15);
 
-        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
         // Feb 15, 2025 00:00:00 UTC = 1739577600
         assertEq(dl0, 1739577600, "period 0 deadline should be Feb 15 2025");
         assertGt(dl0, _circleStartTime(cid), "period 0 deadline should be > startTime");
@@ -1095,7 +1095,7 @@ contract AdasheCircleTest is Test {
         vm.warp(feb15 + GRACE_PERIOD + 1);
         circle.finalizePeriod(cid); // no contributions → claimable=0 (ok for this test)
 
-        (, uint256 dl1, , , , , ) = circle.getPeriod(cid, 1);
+        (, uint256 dl1, , , , , , ) = circle.getPeriod(cid, 1);
 
         // Mar 15, 2025 00:00:00 UTC = 1742000400 (= 1739577600 + 31 days? let's compute)
         // _monthlyDeadline(jan15, 15, 2): month index = (1-1)+2=2, year=2025, month=3, day=15
@@ -1116,7 +1116,7 @@ contract AdasheCircleTest is Test {
         vm.warp(feb28 + GRACE_PERIOD + 1);
         circle.finalizePeriod(cid);
 
-        (, uint256 dl1, , , , , ) = circle.getPeriod(cid, 1);
+        (, uint256 dl1, , , , , , ) = circle.getPeriod(cid, 1);
 
         // _monthlyDeadline(jan31, 31, 2): month index=(1-1)+2=2, year=2025, month=3, day=31
         // Mar 31, 2025 UTC = 1743379200 + ? let's compute from Feb 28:
@@ -1177,7 +1177,7 @@ contract AdasheCircleTest is Test {
             circle.contribute(cid, 0);
         }
 
-        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
         vm.warp(dl0 + GRACE_PERIOD + 1);
         circle.finalizePeriod(cid);
 
@@ -1256,7 +1256,7 @@ contract AdasheCircleTest is Test {
         vm.prank(alice); rCircle.contribute(cid, 0);
         vm.prank(bob);   rCircle.contribute(cid, 0);
 
-        (, uint256 dl, , , , , ) = rCircle.getPeriod(cid, 0);
+        (, uint256 dl, , , , , , ) = rCircle.getPeriod(cid, 0);
         vm.warp(dl + GRACE_PERIOD + 1);
         rCircle.finalizePeriod(cid);
 
@@ -1393,7 +1393,7 @@ contract AdasheCircleTest is Test {
         circle.executeReplacement(cid, bob);
 
         // ASSERT 1: period.recipient updated to newBob
-        (address periodRecipient, , , , , , ) = circle.getPeriod(cid, 2);
+        (address periodRecipient, , , , , , , ) = circle.getPeriod(cid, 2);
         assertEq(periodRecipient, newBob, "period 2 recipient should be newBob after replacement");
 
         // ASSERT 2: bob is no longer in payoutOrder
@@ -1427,7 +1427,7 @@ contract AdasheCircleTest is Test {
         // netPayout = CONTRIBUTION - CONTRIBUTION = 0.
         // newBob has no debt, but claimable = 0 → claimPayout reverts "no claimable payout".
         // The circle is still consistent and completed.
-        (, , , bool payoutReleased, , , ) = circle.getPeriod(cid, 2);
+        (, , , bool payoutReleased, , , , ) = circle.getPeriod(cid, 2);
         assertFalse(payoutReleased, "period 2 payout not yet released");
     }
 
@@ -1511,7 +1511,7 @@ contract AdasheCircleTest is Test {
         // Circle COMPLETED; dan has 2×CONTRIBUTION debt; payout withheld
         assertEq(uint8(_circleStatus(cid)), uint8(AdasheCircle.CircleStatus.COMPLETED));
 
-        (, , , , bool withheld3, , ) = circle.getPeriod(cid, 3);
+        (, , , , bool withheld3, , , ) = circle.getPeriod(cid, 3);
         assertTrue(withheld3, "dan period 3 payout should be withheld");
 
         // ── First settlement: settle debt from period 1 ─────────────────────
@@ -1522,7 +1522,7 @@ contract AdasheCircleTest is Test {
         assertEq(danMid.debtBalance, CONTRIBUTION, "dan should still have 1x debt after partial settle");
 
         // Period 3 must still be withheld (debt remains)
-        (, , , bool released3Mid, bool withheld3Mid, , ) = circle.getPeriod(cid, 3);
+        (, , , bool released3Mid, bool withheld3Mid, , , ) = circle.getPeriod(cid, 3);
         assertFalse(released3Mid, "period 3 should NOT be released after partial settle");
         assertTrue(withheld3Mid,  "period 3 should still be withheld after partial settle");
 
@@ -1534,7 +1534,7 @@ contract AdasheCircleTest is Test {
         assertEq(danFinal.debtBalance, 0, "dan debt fully cleared after second settle");
 
         // Period 3 must now be released
-        (, , , bool released3Final, bool withheld3Final, , ) = circle.getPeriod(cid, 3);
+        (, , , bool released3Final, bool withheld3Final, , , ) = circle.getPeriod(cid, 3);
         assertTrue(released3Final,  "period 3 should be released after full settle");
         assertFalse(withheld3Final, "period 3 should not be withheld after full settle");
     }
@@ -1651,7 +1651,7 @@ contract AdasheCircleTest is Test {
         uint256 startTime = _circleStartTime(cid);
 
         // Period 0 deadline == startTime + 1 day  (n = periodIndex+1 = 1)
-        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
         assertEq(dl0, startTime + 1 days, "period 0 deadline should be startTime + 1 day for daily");
 
         // Finalize period 0 to initialize period 1
@@ -1663,7 +1663,7 @@ contract AdasheCircleTest is Test {
         circle.finalizePeriod(cid);
 
         // Period 1 deadline == startTime + 2 days  (n = periodIndex+1 = 2)
-        (, uint256 dl1, , , , , ) = circle.getPeriod(cid, 1);
+        (, uint256 dl1, , , , , , ) = circle.getPeriod(cid, 1);
         assertEq(dl1, startTime + 2 days, "period 1 deadline should be startTime + 2 days for daily");
     }
 
@@ -1851,7 +1851,7 @@ contract AdasheCircleTest is Test {
         vm.prank(creator); circle.startCircle(cid);
 
         uint256 st = _circleStartTime(cid);
-        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
         assertEq(dl0, st + 1 days, "DAILY period 0 deadline should be startTime + 1 day");
     }
 
@@ -1871,7 +1871,7 @@ contract AdasheCircleTest is Test {
         vm.prank(creator); circle.startCircle(cid);
 
         uint256 st = _circleStartTime(cid);
-        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
         // deadline = weekdayAnchor(st, 0) + 7 days
         // anchor >= st, so deadline >= st + 7 days
         assertGt(dl0, st,           "WEEKLY period 0 deadline should be > startTime");
@@ -1896,7 +1896,7 @@ contract AdasheCircleTest is Test {
         vm.prank(bob);   circle.joinCircle(cid);
         vm.prank(creator); circle.startCircle(cid);
 
-        (, uint256 dl0, , , , , ) = circle.getPeriod(cid, 0);
+        (, uint256 dl0, , , , , , ) = circle.getPeriod(cid, 0);
         // _monthlyDeadline(jan15, 15, 1) = Feb 15, 2025 00:00:00 UTC = 1739577600
         assertEq(dl0, 1739577600, "MONTHLY period 0 deadline should be Feb 15 2025");
         assertGt(dl0, jan15, "MONTHLY period 0 deadline should be > startTime");
@@ -1945,7 +1945,7 @@ contract AdasheCircleTest is Test {
     function test_finalizePeriod_revertsBeforeGraceExpiry() public {
         uint256 cid = _createAndActivate3(); // WEEKLY, grace = 72h
         uint8 cp = _circleCurrentPeriod(cid);
-        (, uint256 deadline, , , , , ) = circle.getPeriod(cid, cp);
+        (, uint256 deadline, , , , , , ) = circle.getPeriod(cid, cp);
         uint256 gracePeriod = _circleGracePeriod(cid); // 72 hours
 
         // Warp to exactly 1 second before the final deadline expires
@@ -1963,7 +1963,7 @@ contract AdasheCircleTest is Test {
     function test_finalizePeriod_succeedsAfterGraceExpiry() public {
         uint256 cid = _createAndActivate3(); // WEEKLY, grace = 72h
         uint8 cp = _circleCurrentPeriod(cid);
-        (, uint256 deadline, , , , , ) = circle.getPeriod(cid, cp);
+        (, uint256 deadline, , , , , , ) = circle.getPeriod(cid, cp);
         uint256 gracePeriod = _circleGracePeriod(cid); // 72 hours
 
         // Contribute before deadline

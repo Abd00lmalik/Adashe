@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { useReadContracts, useWriteContract } from 'wagmi'
+import { useState, useEffect } from 'react'
+import { useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useQueryClient } from '@tanstack/react-query'
 import { adasheContract, CONTRACT_ABI } from '@/lib/contract'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { UsdcAmount } from '@/components/ui/UsdcAmount'
@@ -18,10 +19,12 @@ interface PayoutPanelProps {
 }
 
 export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
-  const [, , , , memberCount, , , , , , , currentPeriod] = circleRaw as [bigint, string, string, bigint, number, ...unknown[]]
+  const [, , , , memberCount, , , , , , , currentPeriod] =
+    circleRaw as [bigint, string, string, bigint, number, ...unknown[]]
   const [txState, setTxState] = useState<TxState>({ status: 'idle' })
+  const [claimHash, setClaimHash] = useState<`0x${string}` | undefined>()
+  const queryClient = useQueryClient()
 
-  // Check all periods for claimable payouts for this address
   const periodContracts = Array.from({ length: memberCount as number }, (_, i) => ({
     ...adasheContract,
     functionName: 'getPeriod' as const,
@@ -30,21 +33,52 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
 
   const { data: periodsData, isLoading, refetch } = useReadContracts({
     contracts: periodContracts,
-    query: { staleTime: 15_000 },
+    query: { staleTime: 0, refetchOnMount: true },
   })
 
   const { writeContractAsync } = useWriteContract()
 
-  // Find periods where this address is recipient and payout is claimable
+  // Receipt watcher for the claim tx
+  const { isSuccess: claimConfirmed, isError: claimFailed } = useWaitForTransactionReceipt({
+    hash: claimHash,
+    query: { enabled: !!claimHash },
+  })
+
+  useEffect(() => {
+    if (claimConfirmed && claimHash) {
+      setTxState({ status: 'success', hash: claimHash })
+      toast.success('Payout claimed successfully!')
+      queryClient.invalidateQueries()
+      refetch()
+      setClaimHash(undefined)
+    }
+    if (claimFailed && claimHash) {
+      setTxState({ status: 'error', message: 'Claim transaction failed on-chain.' })
+      setClaimHash(undefined)
+    }
+  }, [claimConfirmed, claimFailed, claimHash, queryClient, refetch])
+
+  // getPeriod returns 8 values:
+  // [0] recipient: address
+  // [1] deadline: uint256
+  // [2] grossEntitlement: uint256
+  // [3] payoutReleased: bool
+  // [4] payoutWithheld: bool
+  // [5] withheldAmount: uint256
+  // [6] claimableAmount: uint256   ← added in v9
+  // [7] participants: address[]
   const claimablePeriods = (periodsData ?? [])
     .map((pd, i) => {
       if (pd.status !== 'success') return null
-      const [recipient, , , payoutReleased, payoutWithheld, , claimableAmount] =
-        pd.result as [string, bigint, bigint, boolean, boolean, bigint, ...unknown[]]
-      // getPeriod returns (recipient, deadline, grossEntitlement, payoutReleased, payoutWithheld, withheldAmount, participants)
-      // but claimableAmount is NOT returned by getPeriod — we'll use withheldAmount as proxy
-      if (!sameAddress(recipient as string, address)) return null
-      return { periodIndex: i, payoutReleased, payoutWithheld }
+      const result = pd.result as readonly unknown[]
+      const recipient = result[0] as string
+      const payoutReleased = result[3] as boolean
+      const payoutWithheld = result[4] as boolean
+      const withheldAmount = result[5] as bigint
+      const claimableAmount = result[6] as bigint
+
+      if (!sameAddress(recipient, address)) return null
+      return { periodIndex: i, payoutReleased, payoutWithheld, withheldAmount, claimableAmount }
     })
     .filter(Boolean)
 
@@ -57,29 +91,36 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
         functionName: 'claimPayout',
         args: [cid, BigInt(periodIndex)],
       })
+      setClaimHash(hash)
       setTxState({ status: 'confirming', hash })
-      setTxState({ status: 'success', hash })
-      toast.success('Payout claimed!')
-      await refetch()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
       const userMsg = msg.includes('debt outstanding')
         ? 'You have outstanding debt. Repay all debt before claiming your payout.'
+        : msg.includes('no claimable payout')
+        ? 'No claimable payout yet. The period may still be open or not yet finalized.'
         : msg.includes('User rejected')
         ? 'You rejected the transaction.'
-        : 'Claim failed.'
+        : `Claim failed: ${msg.slice(0, 120)}`
       setTxState({ status: 'error', message: userMsg })
     }
   }
 
   if (isLoading) return <Skeleton className="h-32 rounded-2xl" />
 
-  if (!claimablePeriods.length) {
+  // For a PENDING circle, currentPeriod might be undefined — show waiting state
+  const activePeriods = claimablePeriods.filter(Boolean)
+
+  if (!activePeriods.length) {
     return (
       <Card>
         <CardHeader><CardTitle>Payout</CardTitle></CardHeader>
         <CardContent>
-          <p className="text-sm text-muted">You are not the recipient of any period, or payouts have already been claimed.</p>
+          <p className="text-sm text-muted">
+            {(currentPeriod as number) === 0
+              ? 'The circle has not started yet. Payouts become available after the first period is finalized.'
+              : 'You are not the recipient of any period, or all your payouts have already been claimed.'}
+          </p>
         </CardContent>
       </Card>
     )
@@ -89,9 +130,9 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
     <Card>
       <CardHeader><CardTitle>Payout</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        {claimablePeriods.map((cp) => {
+        {activePeriods.map((cp) => {
           if (!cp) return null
-          const { periodIndex, payoutReleased, payoutWithheld } = cp
+          const { periodIndex, payoutReleased, payoutWithheld, withheldAmount, claimableAmount } = cp
 
           if (payoutReleased) {
             return (
@@ -109,8 +150,13 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
                   <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
                   <div>
                     <p className="font-medium text-amber-800">Period {periodIndex + 1} payout withheld</p>
+                    {withheldAmount > 0n && (
+                      <p className="text-amber-700 text-xs mt-1">
+                        Withheld: <UsdcAmount amount={withheldAmount} />
+                      </p>
+                    )}
                     <p className="text-amber-700 text-xs mt-1 text-pretty">
-                      Your payout is held because you have outstanding debt. 
+                      Your payout is held because you have outstanding debt.
                       Repay all debt to become eligible, or use the settlement function if the circle is completed.
                     </p>
                   </div>
@@ -119,14 +165,28 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
             )
           }
 
-          // Claimable
+          if (claimableAmount === 0n) {
+            // Period finalized but claimableAmount is zero — period still open or not yet finalized
+            return (
+              <div key={periodIndex} className="rounded-xl bg-surface border p-4 text-sm text-muted">
+                Period {periodIndex + 1}: waiting for period to be finalized before payout is available.
+              </div>
+            )
+          }
+
+          // Claimable — show amount and claim button
           return (
-            <div key={periodIndex} className="space-y-3">
-              <p className="text-sm text-muted">Period {periodIndex + 1}: your payout is ready to claim.</p>
+            <div key={periodIndex} className="space-y-3 rounded-xl bg-surface border p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">Period {periodIndex + 1} payout ready</p>
+                <p className="text-sm font-semibold text-forest">
+                  <UsdcAmount amount={claimableAmount} />
+                </p>
+              </div>
               <TxButton
                 txState={txState}
                 onAction={() => handleClaim(periodIndex)}
-                idleLabel="Claim Payout"
+                idleLabel={`Claim ${''} USDC`}
               />
             </div>
           )

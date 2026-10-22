@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0xdfbb49541cea68d90c75ecfaf43574ee690a9740",
+  "contractAddress": "0x1cb80c3a60043272f939cb3b6268eb4bf359a92c",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/AdasheCircle.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/AdasheCircle.sol/AdasheCircle.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xdfbb49541cea68d90c75ecfaf43574ee690a9740"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x1cb80c3a60043272f939cb3b6268eb4bf359a92c"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0x1cb80c3a60043272f939cb3b6268eb4bf359a92c",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0x1cb80c3a60043272f939cb3b6268eb4bf359a92c",
+      "txHash": "0x86748270cca0a360159ffdb007af0dfc37ed256f9204ad0f0af046fd1cb3c8e3",
+      "deployedAt": "2026-10-22T13:30:39.110Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0xdfbb49541cea68d90c75ecfaf43574ee690a9740",
@@ -607,6 +614,11 @@
         },
         {
           "name": "withheldAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "claimableAmount",
           "type": "uint256",
           "internalType": "uint256"
         },

@@ -45,7 +45,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   })
 
   const periodData = data?.[0]?.status === 'success'
-    ? (data[0].result as [string, bigint, bigint, boolean, boolean, bigint, string[]])
+    ? (data[0].result as [string, bigint, bigint, boolean, boolean, bigint, bigint, string[]])
     : null
   // data[1] is always at index 1 — no shifting based on address presence
   const contributionData = data?.[1]?.status === 'success' && address
@@ -87,7 +87,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
     return <Skeleton className="h-48 rounded-2xl" />
   }
 
-  const [recipient, deadline, , , , , participants] = periodData
+  const [recipient, deadline, , , , , , participants] = periodData
   const isRecipient = sameAddress(recipient as string, address)
 
   const contribution = contributionData as {

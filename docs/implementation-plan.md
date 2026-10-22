@@ -1,113 +1,74 @@
-Reading the full implementation before touching anything. Now I can see the core issues clearly. Let me read the rest of CreatorPanel and the circle page: Now I have a complete picture. Let me read the `contribute` function and check the exact payment enforcement: Now I have everything I need. Let me write up the complete diagnosis:
-
-**Issue 1 — Cycle start does not persist:**
-`handleStartCircle` in `CreatorPanel.tsx` lines 198–199 sets `confirming` then immediately sets `success` on the next line without waiting for the receipt. So the UI shows "success" before the transaction is even mined. When you navigate away, `startTxState` resets to `{ status: 'idle' }` (it's React state). The circle page re-fetches `circles(cid)` with `staleTime: 10_000` — if the tx hasn't confirmed yet and the cache is stale, `status` still shows PENDING, so `isPending = true` and the Start button reappears. The fix: use `useWaitForTransactionReceipt` and then `refetch()` the circle data before showing success.
-
-**Issue 2 — No visible contribution flow:**
-The contribution flow EXISTS in `CurrentPeriod.tsx` (lines 191–204) but `canContribute` (line 105) requires `contribution?.status === 0 && contribution?.paidAmount === 0n`. The `contribution` object comes from `getContribution(cid, periodIndex, address)`. If `address` is undefined at first render (wallet just connected), the `getContribution` call is skipped (`contracts` array only has `getPeriod`), so `contributionData` is always null, `contribution` is null, and `canContribute = false`. The contribute button never shows. Fix: ensure address is always passed and the conditional spread uses the correct index.
-
-**Issue 3 — Exact payment enforcement:**
-The contract ALREADY enforces exact payment: `usdc.safeTransferFrom(msg.sender, address(this), c.contributionAmount)` — it always transfers exactly `contributionAmount`. There's no user-supplied amount. The UI already submits the exact amount via `UsdcApproveAndAction`. This is correctly implemented. No contract change needed.
-
-The only real issues are Issues 1 and 2. Fixing them now: **Fix Issue 1 — `handleStartCircle` must wait for the receipt then refetch the page's circle data:**
-
-`CreatorPanel` doesn't have access to the page-level `refetch`. The cleanest fix is to use wagmi's `useWaitForTransactionReceipt` hook keyed on the start tx hash, and then force the page to reload circle data by having the circle page pass a `refetch` callback down, or by using a wagmi `queryClient.invalidateQueries`. The simplest correct fix: use `useWaitForTransactionReceipt` in `CreatorPanel` for the start tx hash, and call `window.location.reload()` only after the receipt confirms — that guarantees fresh contract state:I'm in Plan mode. Here is the complete, precise implementation plan — approve it and it executes immediately:
+Reading the full contract before anything else. Now read the `_initializePeriod` and `PayoutPanel` frontend: Now I have the complete picture. Let me check what `getPeriod` actually returns in the ABI: Now I have the complete picture. Let me also check what `getPeriod` returns in the Solidity source: I now have a complete, grounded diagnosis. Let me also check what reserve routing the bug report requests vs what's in the contract: Now I have everything I need for a complete, grounded diagnosis.
 
 ---
 
-## Fix specification
+**Complete root cause analysis:**
 
-### Fix 1 — `CreatorPanel.tsx`: `handleStartCircle` — wait for receipt before success
+**Bug 1 — Why `claimPayout` appears to fail (the primary issue):**
 
-**Current bug (lines 192–204):**
+The `claimablePeriods` filter in `PayoutPanel.tsx` line 39–49 only shows a "Claim Payout" button when `!payoutReleased && !payoutWithheld`. But `PayoutPanel` doesn't have access to `claimableAmount` from the contract — `getPeriod` does NOT return `claimableAmount` (it returns `withheldAmount` at index 5, then `participants` at index 6). So the panel cannot determine whether the payout is actually claimable vs just not-yet-finalized. The `handleClaim` at line 61 also sets `success` immediately without waiting for the receipt — if the tx reverts (e.g. `debt outstanding`), the error is caught and shown, but there's no receipt confirmation.
+
+**Bug 2 — `finalizePeriod` sets `p.claimableAmount = netPayout` but `getPeriod` doesn't return it** (line 811–815 of the contract). The frontend cannot read `claimableAmount` from the contract — it's stored in `_periods` as a field but not included in the `getPeriod` getter. The `claimPayout` function requires `p.claimableAmount > 0` to succeed (line 518). If `netPayout = 0` (because all contributions went to the reserve: `reserveCredit = min(reserveAmount, totalCollected) = totalCollected` when `totalCollected ≤ reserveAmount`), then `claimPayout` will revert "no claimable payout".
+
+**The critical accounting bug:** For a 5-member circle with `contributionAmount = 250 USDC`, `reserveAmount = 250 USDC` (set as `c.reserveAmount = contributionAmount` in `createCircle`), and `grossEntitlement = 250 * 4 = 1000 USDC`: `reserveCredit = min(250, 1000) = 250`, `netPayout = 1000 - 250 = 750 USDC`. This is correct — the recipient gets 750 USDC and their `reserveBalance` gets 250 USDC. **This part works correctly.**
+
+**But:** The `PayoutPanel` line 42–43 destructures `getPeriod` result incorrectly:
 ```ts
-const hash = await writeContractAsync({ ... functionName: 'startCircle', args: [cid] })
-setStartTxState({ status: 'confirming', hash })
-setStartTxState({ status: 'success', hash })  // ← immediately success, no receipt wait
-toast.success('Circle started!')
+const [recipient, , , payoutReleased, payoutWithheld, , claimableAmount] =
+  pd.result as [string, bigint, bigint, boolean, boolean, bigint, ...unknown[]]
 ```
+Index 6 is `participants` (an `address[]`), not `claimableAmount`. The comment on line 44 even admits this: "claimableAmount is NOT returned by getPeriod". So `claimableAmount` is actually the `participants` array. The `payoutWithheld` check then runs incorrectly.
 
-**Fix:**
-1. Add `useWaitForTransactionReceipt` and `useQueryClient` imports
-2. Store the start tx hash in a separate `useState<string>`: `const [startHash, setStartHash] = useState<string | undefined>()`
-3. Use `useWaitForTransactionReceipt({ hash: startHash })` — when `isSuccess` becomes true, call `queryClient.invalidateQueries()` to force the circle data to refetch, then set `setStartTxState({ status: 'success', hash: startHash })`
-4. In `handleStartCircle`: after `writeContractAsync`, only set `confirming` — let the receipt hook handle `success`
-5. In the Start Circle button: disable it when `status === CircleStatus.ACTIVE` (already started on-chain) regardless of local tx state
+**Bug 3 — `handleClaim` sets success immediately** (line 61: `setTxState({ status: 'success', hash })` without awaiting receipt). If the tx reverts, the error is caught in the catch block — but if the tx succeeds, the `refetch()` on line 63 may return stale data.
 
-**Same fix applies to `handleApprove`, `handleRemove`, `handleReplace` — they also set success immediately. Fix them all to at minimum call `refetch()` after the tx hash is confirmed.**
+**The reserve routing request from the bug report** (first contribution → reserve, subsequent → payout) conflicts with the existing contract model. The existing model withholds from the recipient's payout, not from individual contributor contributions. The bug report may be describing the intent, but the current contract has a valid alternative model. I will not change the reserve model — it's correct per `init.md` section 6.
 
-### Fix 2 — `CurrentPeriod.tsx`: `canContribute` — fix the conditional index bug
+**Fixes needed:**
 
-**Current bug (lines 39–51):**
-```ts
-const { data, isLoading, refetch } = useReadContracts({
-  contracts: [
-    { ...adasheContract, functionName: 'getPeriod', args: [cid, periodIndex] },
-    ...(address
-      ? [{ ...adasheContract, functionName: 'getContribution', args: [cid, periodIndex, address] }]
-      : []),  // ← when address undefined on first render, data[1] doesn't exist
-  ],
-})
-const contributionData = data?.[1]?.status === 'success' ? data[1].result : null
-```
+1. Add `claimableAmount` to `getPeriod` getter in the contract (requires redeployment)
+2. Fix `PayoutPanel` destructuring to use `claimableAmount` correctly
+3. Fix `handleClaim` to wait for receipt before showing success
+4. Show the actual claimable amount in the UI
 
-When `address` is initially undefined (wagmi hasn't loaded yet), the contracts array has only 1 element. When `address` later resolves, wagmi fires a new read with 2 elements — but there's a brief window where `data` has stale shape. More importantly: the `canContribute` check at line 105 requires `contribution?.status === 0` — but `contribution` is typed as an object with a `status` field, while `contributionData` is the raw return value of `getContribution`. Let me check what `getContribution` actually returns in the ABI.
+**Migration risk:** Redeployment resets `_nextCircleId` to 1. Existing circles on the current contract (`0xdfbb49541cea68d90c75ecfaf43574ee690a9740`) will continue to work under that address. The app switches to the new contract for new circles only.
 
-**The real bug**: `getContribution` in the contract returns a `ContributionRecord` struct. The `contribution` object is cast as `{ status: number; paidAmount: bigint; ... }`. If the address is in the circle but hasn't contributed yet, `status = 0` (PENDING) and `paidAmount = 0n` — this should make `canContribute = true`. But the `canContribute` check also has `contribution?.status === 0` — if `contribution` is `null` (address was initially undefined), `canContribute = false`.
+Proceeding: I need to switch to Build mode. Here is the complete build specification:
 
-**Fix**: Remove the conditional spread. Always include the `getContribution` call — when `address` is undefined, pass a zero address as placeholder and check `!!address` separately in `canContribute`. Or better: add a `query: { enabled: !!address }` to the whole hook but always include both contracts, and gate `canContribute` on `!!address`:
+---
 
-```ts
-const contracts = [
-  { ...adasheContract, functionName: 'getPeriod', args: [cid, periodIndex] },
-  { ...adasheContract, functionName: 'getContribution', args: [cid, periodIndex, (address ?? '0x0000000000000000000000000000000000000000') as `0x${string}`] },
-] as const
+## Build specification: getPeriod + claimableAmount + PayoutPanel fixes
 
-const { data, isLoading, refetch } = useReadContracts({ contracts, query: { staleTime: 15_000 } })
-// data[0] = period, data[1] = contribution (always at index 1)
-const contributionData = data?.[1]?.status === 'success' ? data[1].result : null
-```
+### Contract change (minimal, safe)
 
-And fix `canContribute`:
-```ts
-const canContribute = !!address && !isRecipient && !deadlinePast && (
-  contributionData === null ||  // not yet loaded
-  (contribution?.status === 0 && (contribution?.paidAmount ?? 0n) === 0n)
-)
-```
+**`contracts/AdasheCircle.sol` — add `claimableAmount` to `getPeriod` return values:**
 
-Wait — if `contributionData === null` we should NOT show contribute (data still loading). Better:
-```ts
-const hasPaid = contribution !== null && (contribution.status !== 0 || (contribution.paidAmount ?? 0n) > 0n)
-const canContribute = !!address && !isRecipient && !deadlinePast && contributionData !== null && !hasPaid
-```
+In `getPeriod`, add `uint256 claimableAmount` as the 7th output (between `withheldAmount` and `participants`), returning `p.claimableAmount`. No other changes.
 
-### Fix 3 — Exact payment: already enforced
+**This requires redeployment.** Existing circles on `0xdfbb49541cea68d90c75ecfaf43574ee690a9740` are unaffected — they continue to operate on that contract. New circles use the new contract.
 
-The contract `contribute()` always transfers exactly `c.contributionAmount` — there is no user-supplied amount. The UI already passes `contributionAmount` to `UsdcApproveAndAction`. No change needed.
+### Test updates
 
-**Also fix `handleContribute` receipt polling**: replace the manual `setInterval` with `useWaitForTransactionReceipt` for correctness. The poll currently checks `updated.status !== 0` on the contribution data — but if the refetch returns stale data, the interval never clears. Replace with the wagmi hook.
+The `getPeriod` return tuple changes from 7 to 8 elements. Any test that destructures `getPeriod` results needs to add the `claimableAmount` field at index 6 (between `withheldAmount` and `participants`).
 
-### Also fix all "immediate success" patterns in CreatorPanel
+### Frontend fixes
 
-The same `confirming → success` in one line pattern affects:
-- `handleApprove` (lines 134–135)
-- `handleRemove` (lines 153–154)
-- `handleReplace` (lines 176–177)
+**`src/components/circle/PayoutPanel.tsx`:**
+1. Fix destructuring of `getPeriod` result — add `claimableAmount` at index 6
+2. Use `claimableAmount > 0n` as the condition for showing "Claim Payout"
+3. Show the actual claimable amount in the UI
+4. Fix `handleClaim` — add `useWaitForTransactionReceipt` and `useQueryClient`; set success only after receipt confirms
+5. Show amount in the "Claim Payout" button label
 
-All should: set `confirming`, then call `await refetch()` after a brief delay (or use `useWaitForTransactionReceipt`). Simplest safe fix that doesn't require per-tx hooks: after `writeContractAsync` returns a hash, `await` a 4-second timeout then call `refetch()` and set success.
+**`src/components/circle/PeriodTimeline.tsx`:**
+Same destructuring fix — add `claimableAmount` at index 6.
 
-### No contract change required
+**`src/components/circle/CurrentPeriod.tsx`:**
+Same destructuring fix — add `claimableAmount` at index 6 in the `getPeriod` tuple.
 
-The contract is correct:
-- `contribute()` enforces exact payment, prevents duplicates, rejects the recipient paying for their own period, rejects non-members
-- `startCircle()` is gated on PENDING status (prevents double-start)
-- Payment amounts are always exact
+**`src/lib/schedule.ts`** and any other file that destructures `getPeriod` results — same fix.
 
-### Files to change
+### ABI update
 
-1. `src/components/circle/CreatorPanel.tsx` — fix `handleStartCircle` (receipt wait + invalidate), fix `handleApprove`/`handleRemove`/`handleReplace` (receipt wait)
-2. `src/components/circle/CurrentPeriod.tsx` — fix `canContribute` (index bug, `hasPaid` logic), fix `handleContribute` (use wagmi receipt hook)
-3. Tests in `src/__tests__/circle-lifecycle.test.ts`
+After `forge build`, the deploy tool updates `contracts/contract-metadata/AdasheCircle.json`. The `getPeriod` function in the ABI gains a new output `claimableAmount` at index 6. Update `src/lib/contract.ts` address fallback and `.env`.
 
-Switch to Build mode to apply.
+Switch to Build mode to execute.
