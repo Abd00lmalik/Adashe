@@ -54,6 +54,36 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
     ? data[1].result
     : null
 
+  // Read getContribution for every non-recipient participant so we can compute
+  // the exact paidSoFar — the sum of all PAID/LATE_PAID contributions so far.
+  // This is required to gate the progressive claim button on the actual available
+  // amount rather than the theoretical maximum (grossEntitlement - reserveAmount).
+  const periodParticipants = periodData ? (periodData[8] as string[]) : []
+  const periodRecipient = periodData ? (periodData[0] as string) : ''
+  const nonRecipientParticipants = periodParticipants.filter(
+    (p) => !sameAddress(p, periodRecipient)
+  )
+  const { data: allContribData, refetch: refetchContribs } = useReadContracts({
+    contracts: nonRecipientParticipants.map((participant) => ({
+      ...adasheContract,
+      functionName: 'getContribution' as const,
+      args: [cid, periodIndex, participant as `0x${string}`],
+    })),
+    query: {
+      staleTime: 0,
+      refetchOnMount: true,
+      enabled: nonRecipientParticipants.length > 0,
+    },
+  })
+
+  // Sum contributions with status PAID (1) or LATE_PAID (2).
+  const paidSoFar: bigint = (allContribData ?? []).reduce((sum, result) => {
+    if (result?.status !== 'success') return sum
+    const cr = result.result as { status: number; paidAmount: bigint }
+    if (cr.status === 1 || cr.status === 2) return sum + cr.paidAmount
+    return sum
+  }, 0n)
+
   const [contributeTxState, setContributeTxState] = useState<TxState>({ status: 'idle' })
   const [finalizeTxState, setFinalizeTxState] = useState<TxState>({ status: 'idle' })
   const [progressiveTxState, setProgressiveTxState] = useState<TxState>({ status: 'idle' })
@@ -94,13 +124,14 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
       toast.success('Contribution confirmed!')
       queryClient.invalidateQueries()
       refetch()
+      refetchContribs()
       setContributeHash(undefined)
     }
     if (contributeFailed && contributeHash) {
       setContributeTxState({ status: 'error', message: 'Contribution failed on-chain.' })
       setContributeHash(undefined)
     }
-  }, [contributeConfirmed, contributeFailed, contributeHash, queryClient, refetch])
+  }, [contributeConfirmed, contributeFailed, contributeHash, queryClient, refetch, refetchContribs])
 
   useEffect(() => {
     if (finalizeConfirmed && finalizeHash) {
@@ -108,37 +139,41 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
       toast.success('Period finalized!')
       queryClient.invalidateQueries()
       refetch()
+      refetchContribs()
       setFinalizeHash(undefined)
     }
     if (finalizeFailed && finalizeHash) {
       setFinalizeTxState({ status: 'error', message: 'Not all contribution deadlines have passed yet.' })
       setFinalizeHash(undefined)
     }
-  }, [finalizeConfirmed, finalizeFailed, finalizeHash, queryClient, refetch])
+  }, [finalizeConfirmed, finalizeFailed, finalizeHash, queryClient, refetch, refetchContribs])
 
   useEffect(() => {
     if (progressiveConfirmed && progressiveHash) {
       setProgressiveTxState({ status: 'success', hash: progressiveHash })
       toast.success('Progressive payout claimed!')
-      // Optimistically mark the full spendable entitlement as claimed so the
-      // button hides immediately — before the query cache refreshes.
-      // maxSpendable is computed below from periodData; capture it here via a
-      // functional update to avoid a stale-closure reference.
+      // Optimistically advance localProgressivelyClaimed by exactly what was
+      // just claimed (paidSoFar - reserveAmount - alreadyClaimed) so the button
+      // hides immediately before the query cache refreshes with the new on-chain
+      // progressivelyPaid value. Using paidSoFar (exact) not grossEntitlement
+      // (upper bound) avoids showing 0 available when only some members have paid.
       setLocalProgressivelyClaimed((prev) => {
-        const gs = periodData ? (periodData[2] as bigint) : 0n
+        const ps = paidSoFar          // exact sum of PAID/LATE_PAID so far
         const ra = reserveAmount
-        const ms = gs > ra ? gs - ra : 0n
-        return ms > prev ? ms : prev
+        const exactSpendable = ps > ra ? ps - ra : 0n
+        const newTotal = exactSpendable > prev ? exactSpendable : prev
+        return newTotal
       })
       queryClient.invalidateQueries()
       refetch()
+      refetchContribs()
       setProgressiveHash(undefined)
     }
     if (progressiveFailed && progressiveHash) {
       setProgressiveTxState({ status: 'error', message: 'No additional funds available to claim yet.' })
       setProgressiveHash(undefined)
     }
-  }, [progressiveConfirmed, progressiveFailed, progressiveHash, queryClient, refetch, periodData, reserveAmount])
+  }, [progressiveConfirmed, progressiveFailed, progressiveHash, queryClient, refetch, refetchContribs, paidSoFar, reserveAmount])
 
   if ((status as unknown as number) === CircleStatus.PENDING) {
     return (
@@ -171,7 +206,8 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   }
 
   // 9-element tuple: [recipient, deadline, grossEntitlement, released, withheld, withheldAmt, claimableAmt, progressivelyPaid, participants]
-  const [recipient, deadline, grossEntitlement, payoutReleased, , , , progressivelyPaid, participants] = periodData
+  // grossEntitlement (index 2) is no longer used for button gating — paidSoFar is used instead.
+  const [recipient, deadline, , payoutReleased, , , , progressivelyPaid, participants] = periodData
   const isRecipient = sameAddress(recipient as string, address)
 
   const contribution = contributionData as {
@@ -193,28 +229,23 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
 
   const canFinalize = graceExpiredNow && !!participants && (participants as string[]).length > 0
 
-  // Progressive payout availability:
-  // maxSpendable = grossEntitlement - reserveAmount (the most the recipient can ever claim progressively)
-  // availableNow = maxSpendable - progressivelyPaid
-  // Only show the button when availableNow > 0 (there is still spendable entitlement not yet claimed).
-  // This is an upper bound — actual paidSoFar may be less than grossEntitlement if not all have contributed yet.
-  // The contract is the authoritative gatekeeper; it will revert if paidSoFar hasn't exceeded reserveAmount.
-  const maxSpendable = (grossEntitlement as bigint) > reserveAmount
-    ? (grossEntitlement as bigint) - reserveAmount
-    : 0n
-  // Use the larger of the on-chain value and the optimistic local value so that
-  // the button hides immediately after a confirmed claim, even before the query
-  // cache has refreshed with the updated progressivelyPaid from the chain.
+  // Progressive payout availability — exact computation using real paidSoFar:
+  //   exactSpendable  = max(0, paidSoFar - reserveAmount)
+  //   exactAvailableNow = max(0, exactSpendable - effectiveProgressivelyClaimed)
+  // effectiveProgressivelyClaimed is the larger of the on-chain progressivelyPaid
+  // and the local optimistic value set immediately after a confirmed claim receipt,
+  // so the button hides the moment the receipt lands without waiting for a refetch.
   const chainProgressivelyPaid = progressivelyPaid as bigint
   const effectiveProgressivelyClaimed = chainProgressivelyPaid > localProgressivelyClaimed
     ? chainProgressivelyPaid
     : localProgressivelyClaimed
   const alreadyProgressivelyClaimed = effectiveProgressivelyClaimed
-  const progressiveAvailableNow = maxSpendable > effectiveProgressivelyClaimed
-    ? maxSpendable - effectiveProgressivelyClaimed
+  const exactSpendable = paidSoFar > reserveAmount ? paidSoFar - reserveAmount : 0n
+  const exactAvailableNow = exactSpendable > effectiveProgressivelyClaimed
+    ? exactSpendable - effectiveProgressivelyClaimed
     : 0n
-  // Show button when: recipient, period not finalized, and there is still spendable entitlement left
-  const canClaimProgressively = isRecipient && !(payoutReleased as boolean) && progressiveAvailableNow > 0n
+  // Show button only when: recipient, period not finalized, and real funds are available
+  const canClaimProgressively = isRecipient && !(payoutReleased as boolean) && exactAvailableNow > 0n
 
   const handleContribute = async () => {
     setContributeTxState({ status: 'signing' })
