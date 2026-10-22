@@ -402,7 +402,7 @@ contract AdasheCircleTest is Test {
         vm.prank(creator); circle.claimPayout(cid, 0);
 
         vm.prank(creator);
-        vm.expectRevert(bytes("no claimable payout"));
+        vm.expectRevert(bytes("payout already released"));
         circle.claimPayout(cid, 0);
     }
 
@@ -1213,9 +1213,11 @@ contract AdasheCircleTest is Test {
         _skipPastFinalDeadline(cid);
         circle.finalizePeriod(cid);
 
-        // Net payout = CONTRIBUTION * (2 - 2) = 0; claimPayout should revert
+        // Net payout = CONTRIBUTION * (2 - 2) = 0; finalizePeriod auto-releases
+        // (remainingPayout==0, no debt) so payoutReleased is already true.
+        // claimPayout must revert with "payout already released" (new guard).
         vm.prank(creator);
-        vm.expectRevert(bytes("no claimable payout"));
+        vm.expectRevert(bytes("payout already released"));
         circle.claimPayout(cid, 0);
     }
 
@@ -2262,5 +2264,180 @@ contract AdasheCircleTest is Test {
         // alice's claimableAmount = 0 (totalCollected=100e6, reserve=100e6, net=0)
         (, , , , , , uint256 claimAmt, , ) = circle.getPeriod(cid, 0);
         assertEq(claimAmt, 0, "alice claimableAmount should be 0 when only reserve covered");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 57. REGRESSION (Change 2): finalizePeriod auto-releases the period when
+    //     the full entitlement was already claimed progressively and no debt.
+    //     payoutReleased must be true immediately after finalizePeriod, without
+    //     the recipient needing to call claimPayout.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_finalizePeriod_AutoRelease_WhenAllClaimedProgressively() public {
+        // Order [alice(0), creator(1), bob(2)] — alice is period-0 recipient.
+        address[] memory order = new address[](3);
+        order[0] = alice;
+        order[1] = creator;
+        order[2] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("AR1", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        // creator and bob both contribute: totalPaid = 200e6, reserve = 100e6, spendable = 100e6
+        vm.prank(creator); circle.contribute(cid, 0);
+        vm.prank(bob);     circle.contribute(cid, 0);
+
+        // alice claims the full spendable amount progressively
+        uint256 aliceBalBefore = usdc.balanceOf(alice);
+        vm.prank(alice);
+        circle.claimProgressivePayout(cid, 0);
+        assertEq(usdc.balanceOf(alice) - aliceBalBefore, CONTRIBUTION, "alice should have received 100e6 progressively");
+
+        // p.progressivelyPaid should be 100e6 before finalize
+        (, , , , , , , uint256 progPaidBefore, ) = circle.getPeriod(cid, 0);
+        assertEq(progPaidBefore, CONTRIBUTION, "progressivelyPaid should be 100e6 before finalize");
+
+        // Warp past grace period and finalize
+        _skipPastFinalDeadline(cid);
+
+        // Expect the auto-release PayoutReleased(cid, 0, alice, 0) event
+        vm.expectEmit(true, true, true, true, address(circle));
+        emit AdasheCircle.PayoutReleased(cid, 0, alice, 0);
+        circle.finalizePeriod(cid);
+
+        // After finalize: payoutReleased must be true (auto-release path)
+        (, , , bool payoutReleased, bool payoutWithheld, , uint256 claimableAmt, uint256 progPaid, ) = circle.getPeriod(cid, 0);
+        assertTrue(payoutReleased,   "payoutReleased should be true after auto-release");
+        assertFalse(payoutWithheld,  "payoutWithheld should be false (no debt)");
+        assertEq(claimableAmt, 0,    "claimableAmount should be 0 (all claimed progressively)");
+        assertEq(progPaid, CONTRIBUTION, "progressivelyPaid should be 100e6");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 58. REGRESSION (Change 3): claimPayout reverts with "payout already released"
+    //     when finalizePeriod already auto-released the period because
+    //     remainingPayout == 0 after a full progressive claim.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_claimPayout_AfterFullProgressiveClaim_RevertsAlreadyReleased() public {
+        // Order [alice(0), creator(1), bob(2)] — alice is period-0 recipient.
+        address[] memory order = new address[](3);
+        order[0] = alice;
+        order[1] = creator;
+        order[2] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("AR2", CONTRIBUTION, 3, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        // Both non-recipients contribute; alice claims full spendable progressively
+        vm.prank(creator); circle.contribute(cid, 0);
+        vm.prank(bob);     circle.contribute(cid, 0);
+        vm.prank(alice);
+        circle.claimProgressivePayout(cid, 0);
+
+        // finalizePeriod: remainingPayout == 0, no debt → auto-release sets payoutReleased = true
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+
+        // Confirm the period was auto-released
+        (, , , bool payoutReleased, , , , , ) = circle.getPeriod(cid, 0);
+        assertTrue(payoutReleased, "period should have been auto-released by finalizePeriod");
+
+        // alice tries to call claimPayout again → must revert with "payout already released"
+        // (the new guard: require(!p.payoutReleased, "payout already released"))
+        vm.prank(alice);
+        vm.expectRevert(bytes("payout already released"));
+        circle.claimPayout(cid, 0);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 59. REGRESSION (Change 1): finalizePeriod sets withheldAmount = remainingPayout
+    //     (not grossNetPayout) when recipient has debt and a partial progressive
+    //     claim was made. The withheld amount must reflect only what remains in
+    //     the contract, not the gross net entitlement.
+    //
+    //     Setup: 4-member circle [carol(0), creator(1), alice(2), bob(3)], contrib=50e6.
+    //     carol is period-0 recipient.
+    //     - creator and alice contribute first (100e6 total; reserve=50e6; spendable=50e6)
+    //     - carol claims 50e6 progressively (no debt yet → allowed)
+    //     - bob also contributes (150e6 total; netPayout=100e6; remainingPayout=50e6)
+    //     - We inject carol.debtBalance=50e6 via vm.store AFTER the progressive claim
+    //       to simulate her having accumulated a debt (e.g. from another period)
+    //       without blocking the progressive claim itself.
+    //     - finalizePeriod: carol has debt → payoutWithheld=true,
+    //       withheldAmount must be 50e6 (=remainingPayout), NOT 100e6 (=netPayout).
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function test_finalizePeriod_WithheldAmount_EqualsRemainingNotGross() public {
+        uint256 contrib = 50e6;
+        address carol = makeAddr("carol");
+        _fund(carol, 10_000e6);
+
+        // 4-member order: [carol(0), creator(1), alice(2), bob(3)]
+        // carol is period-0 recipient; reserveAmount = contrib = 50e6
+        address[] memory order = new address[](4);
+        order[0] = carol;
+        order[1] = creator;
+        order[2] = alice;
+        order[3] = bob;
+
+        vm.prank(creator);
+        uint256 cid = circle.createCircle("WA1", contrib, 4, AdasheCircle.Frequency.WEEKLY, 1, 1, order, PIN);
+        vm.prank(carol);   circle.joinCircle(cid);
+        vm.prank(alice);   circle.joinCircle(cid);
+        vm.prank(bob);     circle.joinCircle(cid);
+        vm.prank(creator); circle.startCircle(cid);
+
+        // Step 1: creator and alice contribute (100e6 total; reserve=50e6; spendable=50e6)
+        vm.prank(creator); circle.contribute(cid, 0);
+        vm.prank(alice);   circle.contribute(cid, 0);
+
+        // Step 2: carol claims progressively (no debt yet → succeeds, receives 50e6)
+        uint256 carolBalBefore = usdc.balanceOf(carol);
+        vm.prank(carol);
+        circle.claimProgressivePayout(cid, 0);
+        assertEq(usdc.balanceOf(carol) - carolBalBefore, contrib,
+            "carol should receive 50e6 progressively");
+
+        // Step 3: inject carol.debtBalance = contrib via vm.store AFTER the progressive claim.
+        // memberRecords is at storage slot 3.
+        // Slot for memberRecords[cid][carol] base = keccak256(abi.encode(carol, keccak256(abi.encode(cid, 3))))
+        // MemberRecord layout (packed): [approved(bool)+joined(bool) word0], [reserveBalance word1],
+        //                               [debtBalance word2], [removedAt word3], [replacedBy word4]
+        bytes32 outerSlot = keccak256(abi.encode(cid, uint256(3)));
+        bytes32 memberSlot = keccak256(abi.encode(carol, outerSlot));
+        bytes32 debtSlot   = bytes32(uint256(memberSlot) + 2); // debtBalance is at offset 2
+        vm.store(address(circle), debtSlot, bytes32(uint256(contrib)));
+
+        // Verify injection worked
+        MemberView memory carolMv = _getMember(cid, carol);
+        assertEq(carolMv.debtBalance, contrib, "carol.debtBalance should be 50e6 after injection");
+
+        // Step 4: bob also contributes (150e6 total)
+        vm.prank(bob); circle.contribute(cid, 0);
+
+        // Step 5: warp past grace and finalize
+        _skipPastFinalDeadline(cid);
+        circle.finalizePeriod(cid);
+
+        // Verify expected period-0 state:
+        //   totalCollected    = 150e6 (all three contributors paid)
+        //   reserveCredit     = 50e6 (reserveAmount)
+        //   netPayout         = 150e6 - 50e6 = 100e6
+        //   progressivelyPaid = 50e6
+        //   remainingPayout   = 100e6 - 50e6 = 50e6
+        //   carol has debt → payoutWithheld = true
+        //   withheldAmount    = remainingPayout = 50e6  (Change 1: NOT netPayout = 100e6)
+        (, , , , bool withheld, uint256 withheldAmt, uint256 claimable, uint256 progPaid, ) = circle.getPeriod(cid, 0);
+        assertTrue(withheld,           "payoutWithheld should be true (carol has debt)");
+        assertEq(withheldAmt, contrib, "withheldAmount should equal remainingPayout=50e6, not grossNetPayout=100e6");
+        assertEq(claimable,   contrib, "claimableAmount should equal remainingPayout=50e6");
+        assertEq(progPaid,    contrib, "progressivelyPaid should be 50e6");
     }
 }

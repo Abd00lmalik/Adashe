@@ -170,21 +170,33 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
             )
           }
 
-          if (claimableAmount === 0n) {
-            // Period still open — claimableAmount set only after finalizePeriod
+          // All claimed progressively, period not yet finalized — no claim button needed
+          if (claimableAmount === 0n && progressivelyPaid > 0n && !payoutWithheld) {
             return (
-              <div key={periodIndex} className="rounded-xl bg-surface border p-4 text-sm text-muted space-y-1">
-                <p>Period {periodIndex + 1}: waiting for period to be finalized before remaining payout is available.</p>
-                {progressivelyPaid > 0n && (
-                  <p className="text-xs text-forest font-medium">
-                    <UsdcAmount amount={progressivelyPaid} /> already claimed progressively during this period.
+              <div key={periodIndex} className="flex items-start gap-2 rounded-xl bg-surface border p-4 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-success shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-forest">
+                    Period {periodIndex + 1}: <UsdcAmount amount={progressivelyPaid} /> claimed progressively.
                   </p>
-                )}
+                  <p className="text-xs text-muted mt-0.5">
+                    Your reserve will be credited when the period is finalized.
+                  </p>
+                </div>
               </div>
             )
           }
 
-          // Claimable — show amount and claim button
+          if (claimableAmount === 0n) {
+            // Period still open, no progressive claims yet
+            return (
+              <div key={periodIndex} className="rounded-xl bg-surface border p-4 text-sm text-muted">
+                <p>Period {periodIndex + 1}: waiting for the period to be finalized before your payout is available.</p>
+              </div>
+            )
+          }
+
+          // Claimable — show remaining amount and claim button
           return (
             <div key={periodIndex} className="space-y-3 rounded-xl bg-surface border p-4">
               <div className="flex items-center justify-between">
@@ -193,10 +205,15 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
                   <UsdcAmount amount={claimableAmount} />
                 </p>
               </div>
+              {progressivelyPaid > 0n && (
+                <p className="text-xs text-muted">
+                  <UsdcAmount amount={progressivelyPaid} /> already claimed progressively.
+                </p>
+              )}
               <TxButton
                 txState={txState}
                 onAction={() => handleClaim(periodIndex)}
-                idleLabel={`Claim ${''} USDC`}
+                idleLabel={`Claim ${String(claimableAmount / 1_000_000n)} USDC`}
               />
             </div>
           )

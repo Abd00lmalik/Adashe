@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { useReadContracts, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi'
+import { useState, useEffect } from 'react'
+import { useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useQueryClient } from '@tanstack/react-query'
 import { adasheContract, CONTRACT_ABI, CircleStatus } from '@/lib/contract'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { UsdcAmount } from '@/components/ui/UsdcAmount'
@@ -12,9 +13,9 @@ import { UsdcApproveAndAction } from '@/components/tx/UsdcApproveAndAction'
 import { TxButton, type TxState } from '@/components/tx/TxButton'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDeadline, sameAddress, isExpired } from '@/lib/utils'
-import { isGraceExpired, GRACE_PERIOD_BY_FREQUENCY, graceExpiry } from '@/lib/schedule'
+import { isGraceExpired, graceExpiry } from '@/lib/schedule'
 import { Frequency } from '@/lib/contract'
-import { Clock, Users, AlertCircle } from 'lucide-react'
+import { Clock } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface CurrentPeriodProps {
@@ -30,6 +31,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   const [, , , contributionAmount, memberCount, frequency, , , , status, , currentPeriod] = circleRaw as [
     bigint, string, string, bigint, number, number, number, number, string, number, bigint, number, bigint, bigint
   ]
+  const reserveAmount = (circleRaw as unknown[])[12] as bigint
 
   const periodIndex = BigInt(currentPeriod as number)
 
@@ -56,7 +58,69 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   const [finalizeTxState, setFinalizeTxState] = useState<TxState>({ status: 'idle' })
   const [progressiveTxState, setProgressiveTxState] = useState<TxState>({ status: 'idle' })
 
+  // Tx hashes for receipt watchers
+  const [contributeHash, setContributeHash] = useState<`0x${string}` | undefined>()
+  const [finalizeHash, setFinalizeHash] = useState<`0x${string}` | undefined>()
+  const [progressiveHash, setProgressiveHash] = useState<`0x${string}` | undefined>()
+
   const { writeContractAsync } = useWriteContract()
+  const queryClient = useQueryClient()
+
+  // Receipt watchers — one per tx type
+  const { isSuccess: contributeConfirmed, isError: contributeFailed } = useWaitForTransactionReceipt({
+    hash: contributeHash,
+    query: { enabled: !!contributeHash },
+  })
+  const { isSuccess: finalizeConfirmed, isError: finalizeFailed } = useWaitForTransactionReceipt({
+    hash: finalizeHash,
+    query: { enabled: !!finalizeHash },
+  })
+  const { isSuccess: progressiveConfirmed, isError: progressiveFailed } = useWaitForTransactionReceipt({
+    hash: progressiveHash,
+    query: { enabled: !!progressiveHash },
+  })
+
+  useEffect(() => {
+    if (contributeConfirmed && contributeHash) {
+      setContributeTxState({ status: 'success', hash: contributeHash })
+      toast.success('Contribution confirmed!')
+      queryClient.invalidateQueries()
+      refetch()
+      setContributeHash(undefined)
+    }
+    if (contributeFailed && contributeHash) {
+      setContributeTxState({ status: 'error', message: 'Contribution failed on-chain.' })
+      setContributeHash(undefined)
+    }
+  }, [contributeConfirmed, contributeFailed, contributeHash, queryClient, refetch])
+
+  useEffect(() => {
+    if (finalizeConfirmed && finalizeHash) {
+      setFinalizeTxState({ status: 'success', hash: finalizeHash })
+      toast.success('Period finalized!')
+      queryClient.invalidateQueries()
+      refetch()
+      setFinalizeHash(undefined)
+    }
+    if (finalizeFailed && finalizeHash) {
+      setFinalizeTxState({ status: 'error', message: 'Not all contribution deadlines have passed yet.' })
+      setFinalizeHash(undefined)
+    }
+  }, [finalizeConfirmed, finalizeFailed, finalizeHash, queryClient, refetch])
+
+  useEffect(() => {
+    if (progressiveConfirmed && progressiveHash) {
+      setProgressiveTxState({ status: 'success', hash: progressiveHash })
+      toast.success('Progressive payout claimed!')
+      queryClient.invalidateQueries()
+      refetch()
+      setProgressiveHash(undefined)
+    }
+    if (progressiveFailed && progressiveHash) {
+      setProgressiveTxState({ status: 'error', message: 'No additional funds available to claim yet.' })
+      setProgressiveHash(undefined)
+    }
+  }, [progressiveConfirmed, progressiveFailed, progressiveHash, queryClient, refetch])
 
   if ((status as unknown as number) === CircleStatus.PENDING) {
     return (
@@ -88,8 +152,8 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
     return <Skeleton className="h-48 rounded-2xl" />
   }
 
-  // 9-element tuple: [recipient, deadline, gross, released, withheld, withheldAmt, claimableAmt, progressivelyPaid, participants]
-  const [recipient, deadline, , , , , claimableAmount, progressivelyPaid, participants] = periodData
+  // 9-element tuple: [recipient, deadline, grossEntitlement, released, withheld, withheldAmt, claimableAmt, progressivelyPaid, participants]
+  const [recipient, deadline, grossEntitlement, payoutReleased, , , , progressivelyPaid, participants] = periodData
   const isRecipient = sameAddress(recipient as string, address)
 
   const contribution = contributionData as {
@@ -102,18 +166,30 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   } | null
 
   const deadlinePast = isExpired(deadline as bigint)
-  // Grace period must have elapsed before finalization is allowed.
-  // Read frequency from circleRaw to pick the correct grace duration.
   const circleFrequency = (frequency as unknown as number) as Frequency
   const graceExpiredNow = isGraceExpired(Number(deadline as bigint), circleFrequency)
-  // Show contribution button when: wallet connected, not the recipient, not already paid,
-  // contribution data loaded, and deadline not yet passed.
+
   const hasPaid = contributionData !== null && contribution !== null &&
     (contribution.status !== 0 || (contribution.paidAmount ?? 0n) > 0n)
   const canContribute = !!address && !isRecipient && !deadlinePast && contributionData !== null && !hasPaid
 
-  // Only show Finalize when the grace period has fully passed AND there are participants.
   const canFinalize = graceExpiredNow && !!participants && (participants as string[]).length > 0
+
+  // Progressive payout availability:
+  // maxSpendable = grossEntitlement - reserveAmount (the most the recipient can ever claim progressively)
+  // availableNow = maxSpendable - progressivelyPaid
+  // Only show the button when availableNow > 0 (there is still spendable entitlement not yet claimed).
+  // This is an upper bound — actual paidSoFar may be less than grossEntitlement if not all have contributed yet.
+  // The contract is the authoritative gatekeeper; it will revert if paidSoFar hasn't exceeded reserveAmount.
+  const maxSpendable = (grossEntitlement as bigint) > reserveAmount
+    ? (grossEntitlement as bigint) - reserveAmount
+    : 0n
+  const alreadyProgressivelyClaimed = progressivelyPaid as bigint
+  const progressiveAvailableNow = maxSpendable > alreadyProgressivelyClaimed
+    ? maxSpendable - alreadyProgressivelyClaimed
+    : 0n
+  // Show button when: recipient, period not finalized, and there is still spendable entitlement left
+  const canClaimProgressively = isRecipient && !(payoutReleased as boolean) && progressiveAvailableNow > 0n
 
   const handleContribute = async () => {
     setContributeTxState({ status: 'signing' })
@@ -124,15 +200,18 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
         functionName: 'contribute',
         args: [cid, periodIndex],
       })
+      setContributeHash(hash)
       setContributeTxState({ status: 'confirming', hash })
-      // Wait ~5s for the block to mine, then refresh contribution state.
-      await new Promise((r) => setTimeout(r, 5000))
-      await refetch()
-      setContributeTxState({ status: 'success', hash })
-      toast.success('Contribution confirmed!')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
-      setContributeTxState({ status: 'error', message: msg.includes('User rejected') ? 'You rejected the transaction.' : msg.includes('already settled') ? 'You have already contributed this period.' : 'Contribution failed.' })
+      setContributeTxState({
+        status: 'error',
+        message: msg.includes('User rejected')
+          ? 'You rejected the transaction.'
+          : msg.includes('already settled')
+          ? 'You have already contributed this period.'
+          : 'Contribution failed.',
+      })
     }
   }
 
@@ -145,11 +224,8 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
         functionName: 'claimProgressivePayout',
         args: [cid, periodIndex],
       })
+      setProgressiveHash(hash)
       setProgressiveTxState({ status: 'confirming', hash })
-      await new Promise((r) => setTimeout(r, 5000))
-      await refetch()
-      setProgressiveTxState({ status: 'success', hash })
-      toast.success('Progressive payout claimed!')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
       setProgressiveTxState({
@@ -172,14 +248,16 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
         functionName: 'finalizePeriod',
         args: [cid],
       })
+      setFinalizeHash(hash)
       setFinalizeTxState({ status: 'confirming', hash })
-      await new Promise((r) => setTimeout(r, 5000))
-      await refetch()
-      setFinalizeTxState({ status: 'success', hash })
-      toast.success('Period finalized!')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
-      setFinalizeTxState({ status: 'error', message: msg.includes('not all final deadlines') ? 'Not all contribution deadlines have passed yet.' : 'Finalization failed.' })
+      setFinalizeTxState({
+        status: 'error',
+        message: msg.includes('not all final deadlines')
+          ? 'Not all contribution deadlines have passed yet.'
+          : 'Finalization failed.',
+      })
     }
   }
 
@@ -222,7 +300,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
         {canContribute && (
           <div className="pt-2">
             <p className="text-xs text-muted mb-3">
-              Approve USDC and contribute <strong>{String(contributionAmount as bigint / 1_000_000n)} USDC</strong> for this period.
+              Approve USDC and contribute <strong>{String((contributionAmount as bigint) / 1_000_000n)} USDC</strong> for this period.
               Grace period: {circleFrequency === Frequency.DAILY ? '12 hours' : circleFrequency === Frequency.WEEKLY ? '3 days' : '10 days'} after the deadline.
             </p>
             <UsdcApproveAndAction
@@ -234,30 +312,26 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
           </div>
         )}
 
-        {/* Progressive payout claim — visible to recipient when funds above reserve are available */}
-        {isRecipient && !periodData[3] /* !payoutReleased */ && (() => {
-          const reserveAmt = (circleRaw as unknown[])[12] as bigint
-          const prog = progressivelyPaid as bigint
-          // We can only show "available" if we know paidSoFar — this is estimated from
-          // grossEntitlement but the contract tracks it exactly. Show the claim button
-          // and let the contract reject if nothing is available.
-          return (
-            <div className="pt-2 border-t border-ivory-200">
-              <p className="text-xs text-muted mb-1 font-medium">Progressive payout</p>
-              <p className="text-xs text-muted mb-3">
-                Claim contributions already received above the <UsdcAmount amount={reserveAmt} /> reserve threshold. The reserve is held until period finalization.
-                {prog > 0n && <> Already claimed: <UsdcAmount amount={prog} />.</>}
-              </p>
-              <TxButton
-                txState={progressiveTxState}
-                onAction={handleProgressiveClaim}
-                idleLabel="Claim Available Payout"
-                variant="default"
-                size="sm"
-              />
-            </div>
-          )
-        })()}
+        {/* Progressive payout claim — only shown when there is genuinely spendable entitlement remaining */}
+        {canClaimProgressively && (
+          <div className="pt-2 border-t border-ivory-200">
+            <p className="text-xs text-muted mb-1 font-medium">Progressive payout</p>
+            <p className="text-xs text-muted mb-3">
+              Claim contributions already received above the <UsdcAmount amount={reserveAmount} /> reserve threshold.
+              The reserve is held until period finalization.
+              {alreadyProgressivelyClaimed > 0n && (
+                <> Already claimed: <UsdcAmount amount={alreadyProgressivelyClaimed} />.</>
+              )}
+            </p>
+            <TxButton
+              txState={progressiveTxState}
+              onAction={handleProgressiveClaim}
+              idleLabel="Claim Available Payout"
+              variant="default"
+              size="sm"
+            />
+          </div>
+        )}
 
         {deadlinePast && !graceExpiredNow && (
           <div className="pt-2 rounded-xl bg-amber-50 px-3 py-2">

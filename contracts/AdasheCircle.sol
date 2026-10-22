@@ -542,8 +542,17 @@ contract AdasheCircle is ReentrancyGuard {
 
         if (recipientRecord.debtBalance > 0) {
             p.payoutWithheld = true;
-            p.withheldAmount = netPayout;
-            emit PayoutWithheld(circleId, periodIndex, p.recipient, netPayout);
+            // withheldAmount must reflect what is actually still held in the contract,
+            // not the gross netPayout (which may already have been partially paid out progressively).
+            p.withheldAmount = remainingPayout;
+            emit PayoutWithheld(circleId, periodIndex, p.recipient, remainingPayout);
+        } else if (remainingPayout == 0) {
+            // Everything was already claimed progressively — mark the period as released immediately
+            // so that payoutReleased=true is visible on-chain and the UI can show the claimed state.
+            // claimPayout cannot be called when claimableAmount==0, so without this the period
+            // would be permanently stuck with payoutReleased=false.
+            p.payoutReleased = true;
+            emit PayoutReleased(circleId, periodIndex, p.recipient, 0);
         }
 
         c.currentPeriod += 1;
@@ -563,7 +572,12 @@ contract AdasheCircle is ReentrancyGuard {
         Period storage p = _periods[circleId][periodIndex];
         require(p.initialized, "period not initialized");
         require(msg.sender == p.recipient, "not recipient");
-        require(p.claimableAmount > 0, "no claimable payout");
+        require(!p.payoutReleased, "payout already released");
+        // Allow claim when there is a remaining claimable balance (normal post-finalize case),
+        // OR when the full entitlement was already paid out progressively (progressivelyPaid > 0
+        // and claimableAmount == 0). In the latter case this call simply marks the period as
+        // released without transferring any additional funds.
+        require(p.claimableAmount > 0 || p.progressivelyPaid > 0, "no claimable payout");
 
         MemberRecord storage mr = memberRecords[circleId][msg.sender];
         require(mr.debtBalance == 0, "debt outstanding");

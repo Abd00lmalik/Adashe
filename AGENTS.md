@@ -4,7 +4,8 @@
 
 | Contract | Chain | Address | Tx Hash | Explorer |
 |---|---|---|---|---|
-| AdasheCircle v9 (current) | Arc Testnet | `0x2891663ecf025c98f2a3128106f48691f86c5910` | `0x20e639c956a687080b226e2a04da50e1fac7fb25cb65856090029f2fd11f21af` | [View](https://explorer.testnet.arc.io/address/0x2891663ecf025c98f2a3128106f48691f86c5910) |
+| AdasheCircle v11 (current) | Arc Testnet | `0xbdb1eadb00f2955b83a6b43ae97cda09a6553c59` | `0x82930875b1c466ce560d62dffd87cb575d0d7f629d171013f7b1586764fb82b9` | [View](https://explorer.testnet.arc.io/address/0xbdb1eadb00f2955b83a6b43ae97cda09a6553c59) |
+| AdasheCircle v10 (stale) | Arc Testnet | `0x2891663ecf025c98f2a3128106f48691f86c5910` | `0x9624a7cbaa8a2fd2ff0b6941efa5bbcb440c0cc8a0fb01eb2f46610d2a11b447` | [View](https://explorer.testnet.arc.io/address/0x2891663ecf025c98f2a3128106f48691f86c5910) |
 | AdasheCircle v7 (superseded) | Arc Testnet | `0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef` | `0x58511777f4d303f5418ea3dc7fb5d8058a71cf57de63e69678365051106606ad` | [View](https://explorer.testnet.arc.io/address/0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef) |
 | AdasheCircle v6 (superseded) | Arc Testnet | `0xd98f33d01cf491526d2acdb5d34ddbae49248d54` | `0x3a96b0c9132a76a137952e39c78298079836eb17082f0b7b446fc21c7579c41a` | [View](https://explorer.testnet.arc.io/address/0xd98f33d01cf491526d2acdb5d34ddbae49248d54) |
 | AdasheCircle v4 (superseded) | Arc Testnet | `0xcd7c871f4d0ce61ef2c90f12d2b0384299134784` | `0x2b0ff88ca4220b9babeafd82e270804334d0e1a54f52b89a049e43ec3ac425df` | [View](https://explorer.testnet.arc.io/address/0xcd7c871f4d0ce61ef2c90f12d2b0384299134784) |
