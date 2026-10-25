@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { useReadContracts, useWriteContract } from 'wagmi'
+import { useState, useEffect } from 'react'
+import { useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useQueryClient } from '@tanstack/react-query'
 import { adasheContract, CONTRACT_ABI } from '@/lib/contract'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { UsdcAmount } from '@/components/ui/UsdcAmount'
@@ -17,16 +18,22 @@ interface DebtPanelProps {
 }
 
 export function DebtPanel({ cid, address }: DebtPanelProps) {
-  const [repayTxState, setRepayTxState] = useState<TxState>({ status: 'idle' })
-  const [repayReserveTxState, setRepayReserveTxState] = useState<TxState>({ status: 'idle' })
+  const [repayTxStates, setRepayTxStates] = useState<Record<string, TxState>>({})
+  const [repayReserveTxStates, setRepayReserveTxStates] = useState<Record<string, TxState>>({})
+  const [repayHash, setRepayHash] = useState<`0x${string}` | undefined>()
+  const [repayReserveHash, setRepayReserveHash] = useState<`0x${string}` | undefined>()
+  const [pendingPeriod, setPendingPeriod] = useState<number | null>(null)
+  const [pendingReservePeriod, setPendingReservePeriod] = useState<number | null>(null)
 
-  // Always call both hooks unconditionally — no early returns before hooks.
+  const queryClient = useQueryClient()
+
+  // Always call all hooks unconditionally — no early returns before hooks.
   const { data: memberData, isLoading, refetch } = useReadContracts({
     contracts: [
       { ...adasheContract, functionName: 'memberRecords', args: [cid, address as `0x${string}`] },
       { ...adasheContract, functionName: 'circles', args: [cid] },
     ],
-    query: { staleTime: 15_000 },
+    query: { staleTime: 0, refetchOnMount: true },
   })
 
   const memberRec = memberData?.[0]?.status === 'success'
@@ -47,10 +54,58 @@ export function DebtPanel({ cid, address }: DebtPanelProps) {
   // Hook always called — disabled when no debt or memberCount not yet known.
   const { data: debtData, isLoading: debtLoading, refetch: refetchDebt } = useReadContracts({
     contracts: debtCheckContracts,
-    query: { enabled: debtBalance > 0n && memberCount > 0, staleTime: 15_000 },
+    query: { enabled: debtBalance > 0n && memberCount > 0, staleTime: 0, refetchOnMount: true },
   })
 
   const { writeContractAsync } = useWriteContract()
+
+  // Receipt watchers for repay and repayReserve
+  const { isSuccess: repayConfirmed, isError: repayFailed } = useWaitForTransactionReceipt({
+    hash: repayHash,
+    query: { enabled: !!repayHash },
+  })
+  const { isSuccess: repayReserveConfirmed, isError: repayReserveFailed } = useWaitForTransactionReceipt({
+    hash: repayReserveHash,
+    query: { enabled: !!repayReserveHash },
+  })
+
+  useEffect(() => {
+    if (repayConfirmed && repayHash && pendingPeriod !== null) {
+      const key = String(pendingPeriod)
+      setRepayTxStates((s) => ({ ...s, [key]: { status: 'success', hash: repayHash } }))
+      toast.success('Debt repaid!')
+      queryClient.invalidateQueries()
+      refetch()
+      refetchDebt()
+      setRepayHash(undefined)
+      setPendingPeriod(null)
+    }
+    if (repayFailed && repayHash && pendingPeriod !== null) {
+      const key = String(pendingPeriod)
+      setRepayTxStates((s) => ({ ...s, [key]: { status: 'error', message: 'Repayment failed.' } }))
+      setRepayHash(undefined)
+      setPendingPeriod(null)
+    }
+  }, [repayConfirmed, repayFailed, repayHash, pendingPeriod, queryClient, refetch, refetchDebt])
+
+  useEffect(() => {
+    if (repayReserveConfirmed && repayReserveHash && pendingReservePeriod !== null) {
+      const key = String(pendingReservePeriod)
+      setRepayReserveTxStates((s) => ({ ...s, [key]: { status: 'success', hash: repayReserveHash } }))
+      toast.success('Reserve debt repaid! Your reserve has been restored.')
+      queryClient.invalidateQueries()
+      refetch()
+      refetchDebt()
+      setRepayReserveHash(undefined)
+      setPendingReservePeriod(null)
+    }
+    if (repayReserveFailed && repayReserveHash && pendingReservePeriod !== null) {
+      const key = String(pendingReservePeriod)
+      setRepayReserveTxStates((s) => ({ ...s, [key]: { status: 'error', message: 'Repayment failed.' } }))
+      setRepayReserveHash(undefined)
+      setPendingReservePeriod(null)
+    }
+  }, [repayReserveConfirmed, repayReserveFailed, repayReserveHash, pendingReservePeriod, queryClient, refetch, refetchDebt])
 
   // Now early returns are safe — all hooks have been called.
   if (isLoading) return <Skeleton className="h-24 rounded-2xl" />
@@ -70,7 +125,8 @@ export function DebtPanel({ cid, address }: DebtPanelProps) {
   }
 
   const handleRepay = async (periodIndex: number) => {
-    setRepayTxState({ status: 'signing' })
+    const key = String(periodIndex)
+    setRepayTxStates((s) => ({ ...s, [key]: { status: 'signing' } }))
     try {
       const hash = await writeContractAsync({
         address: adasheContract.address,
@@ -78,19 +134,21 @@ export function DebtPanel({ cid, address }: DebtPanelProps) {
         functionName: 'repayDebt',
         args: [cid, BigInt(periodIndex)],
       })
-      setRepayTxState({ status: 'confirming', hash })
-      setRepayTxState({ status: 'success', hash })
-      toast.success('Debt repaid!')
-      await refetch()
-      await refetchDebt()
+      setPendingPeriod(periodIndex)
+      setRepayHash(hash)
+      setRepayTxStates((s) => ({ ...s, [key]: { status: 'confirming', hash } }))
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
-      setRepayTxState({ status: 'error', message: msg.includes('User rejected') ? 'Rejected.' : 'Repayment failed.' })
+      setRepayTxStates((s) => ({
+        ...s,
+        [key]: { status: 'error', message: msg.includes('User rejected') ? 'Rejected.' : 'Repayment failed.' },
+      }))
     }
   }
 
   const handleRepayReserve = async (periodIndex: number) => {
-    setRepayReserveTxState({ status: 'signing' })
+    const key = String(periodIndex)
+    setRepayReserveTxStates((s) => ({ ...s, [key]: { status: 'signing' } }))
     try {
       const hash = await writeContractAsync({
         address: adasheContract.address,
@@ -98,14 +156,15 @@ export function DebtPanel({ cid, address }: DebtPanelProps) {
         functionName: 'repayReserveDebt',
         args: [cid, BigInt(periodIndex)],
       })
-      setRepayReserveTxState({ status: 'confirming', hash })
-      setRepayReserveTxState({ status: 'success', hash })
-      toast.success('Reserve debt repaid! Your reserve has been restored.')
-      await refetch()
-      await refetchDebt()
+      setPendingReservePeriod(periodIndex)
+      setRepayReserveHash(hash)
+      setRepayReserveTxStates((s) => ({ ...s, [key]: { status: 'confirming', hash } }))
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed'
-      setRepayReserveTxState({ status: 'error', message: msg.includes('User rejected') ? 'Rejected.' : 'Repayment failed.' })
+      setRepayReserveTxStates((s) => ({
+        ...s,
+        [key]: { status: 'error', message: msg.includes('User rejected') ? 'Rejected.' : 'Repayment failed.' },
+      }))
     }
   }
 
@@ -134,6 +193,7 @@ export function DebtPanel({ cid, address }: DebtPanelProps) {
               const creditorDebt = debtData?.[i * 2]?.result as bigint ?? 0n
               const reserveDebt = debtData?.[i * 2 + 1]?.result as bigint ?? 0n
               if (creditorDebt === 0n && reserveDebt === 0n) return null
+              const key = String(i)
 
               return (
                 <div key={i} className="rounded-xl border border-ivory-300 p-4 space-y-3">
@@ -148,7 +208,7 @@ export function DebtPanel({ cid, address }: DebtPanelProps) {
                         amount={creditorDebt}
                         actionLabel="Repay"
                         onAction={() => handleRepay(i)}
-                        actionTxState={repayTxState}
+                        actionTxState={repayTxStates[key] ?? { status: 'idle' }}
                       />
                     </div>
                   )}
@@ -162,7 +222,7 @@ export function DebtPanel({ cid, address }: DebtPanelProps) {
                         amount={reserveDebt}
                         actionLabel="Repay Reserve"
                         onAction={() => handleRepayReserve(i)}
-                        actionTxState={repayReserveTxState}
+                        actionTxState={repayReserveTxStates[key] ?? { status: 'idle' }}
                       />
                     </div>
                   )}

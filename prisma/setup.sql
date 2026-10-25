@@ -13,6 +13,7 @@ BEGIN
       'CIRCLE_ACTIVATED',
       'CONTRIBUTION_DUE',
       'DEADLINE_APPROACHING',
+      'MISSED_PAYMENT',
       'PERIOD_FINALIZED',
       'PAYOUT_AVAILABLE',
       'PAYOUT_WITHHELD',
@@ -87,3 +88,9 @@ CREATE INDEX IF NOT EXISTS "PinAttempt_inviteId_ip_idx" ON "PinAttempt"("inviteI
 CREATE INDEX IF NOT EXISTS "PinAttempt_ip_time_idx"     ON "PinAttempt"("ipAddress", "attemptedAt");
 CREATE INDEX IF NOT EXISTS "Notification_wallet_idx"    ON "Notification"("wallet", "readAt");
 CREATE INDEX IF NOT EXISTS "Notification_circle_idx"    ON "Notification"("circleId");
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Enum migrations — safe to run against an existing database at any time.
+-- ALTER TYPE ... ADD VALUE IF NOT EXISTS is idempotent.
+-- ─────────────────────────────────────────────────────────────────────────────
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'MISSED_PAYMENT';

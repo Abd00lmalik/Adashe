@@ -28,7 +28,7 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
   // indices: 0=id, 1=creator, 2=name, 3=contributionAmount, 4=memberCount,
   // 5=frequency, 6=weekday, 7=anchorDay, 8=pinHash, 9=status,
   // 10=startTime, 11=currentPeriod, 12=reserveAmount, 13=gracePeriod
-  const [, , , contributionAmount, memberCount, frequency, , , , status, , currentPeriod] = circleRaw as [
+  const [, creator, circleName, contributionAmount, memberCount, frequency, , , , status, , currentPeriod] = circleRaw as [
     bigint, string, string, bigint, number, number, number, number, string, number, bigint, number, bigint, bigint
   ]
   const reserveAmount = (circleRaw as unknown[])[12] as bigint
@@ -76,13 +76,26 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
     },
   })
 
-  // Sum contributions with status PAID (1) or LATE_PAID (2).
+  // Sum contributions with status PAID (1), LATE_PAID (2), or COVERED_BY_RESERVE (4).
+  // COVERED_BY_RESERVE is set by finalizePeriod when a defaulter's reserve covered their
+  // obligation — cr.paidAmount is set to the covered amount, so it must be counted here
+  // so the recipient's progressive payout reflects the full collected amount.
   const paidSoFar: bigint = (allContribData ?? []).reduce((sum, result) => {
     if (result?.status !== 'success') return sum
     const cr = result.result as { status: number; paidAmount: bigint }
-    if (cr.status === 1 || cr.status === 2) return sum + cr.paidAmount
+    if (cr.status === 1 || cr.status === 2 || cr.status === 4) return sum + cr.paidAmount
     return sum
   }, 0n)
+
+  // Pre-compute grace state from raw period data so it is available before any
+  // early-return guards. Used in useEffect dependency arrays.
+  const rawPeriodDeadline = periodData ? (periodData[1] as bigint) : 0n
+  const rawCircleFrequency = (frequency as unknown as number) as Frequency
+  const earlyGraceExpired = rawPeriodDeadline > 0n
+    ? isGraceExpired(Number(rawPeriodDeadline), rawCircleFrequency)
+    : false
+  const rawPayoutReleased = periodData ? (periodData[3] as boolean) : false
+  const rawParticipants = periodData ? (periodData[8] as string[]) : []
 
   const [contributeTxState, setContributeTxState] = useState<TxState>({ status: 'idle' })
   const [finalizeTxState, setFinalizeTxState] = useState<TxState>({ status: 'idle' })
@@ -117,6 +130,89 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
     hash: progressiveHash,
     query: { enabled: !!progressiveHash },
   })
+
+  // Auto-finalization: when the grace period has expired and the period is not yet
+  // finalized, automatically submit finalizePeriod from the connected wallet.
+  // finalizePeriod is permissionless — any connected wallet can call it.
+  // The existing finalizeConfirmed receipt watcher handles the success path.
+  // Only fires once per mount (autoFinalizeAttempted guard) to prevent duplicate txs.
+  const [autoFinalizeAttempted, setAutoFinalizeAttempted] = useState(false)
+  useEffect(() => {
+    if (!earlyGraceExpired) return
+    if (rawPayoutReleased) return
+    if (!rawParticipants || rawParticipants.length === 0) return
+    if (autoFinalizeAttempted) return
+    if (finalizeTxState.status !== 'idle') return
+    if (!address) return  // wallet must be connected to sign the tx
+
+    setAutoFinalizeAttempted(true)
+    setFinalizeTxState({ status: 'signing' })
+
+    writeContractAsync({
+      ...adasheContract,
+      functionName: 'finalizePeriod',
+      args: [cid],
+    })
+      .then((hash) => {
+        setFinalizeHash(hash)
+        // finalizeConfirmed watcher takes over from here
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        // Silently swallow wallet rejections; surface real errors as a toast
+        if (
+          !message.toLowerCase().includes('user rejected') &&
+          !message.toLowerCase().includes('denied')
+        ) {
+          toast.error('Auto-finalization failed — use the Finalize Period button below.')
+        }
+        // Reset so the manual button is available as fallback
+        setFinalizeTxState({ status: 'idle' })
+        setAutoFinalizeAttempted(false)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earlyGraceExpired, rawPayoutReleased, rawParticipants.length, autoFinalizeAttempted, address])
+
+  // Missed-payment notification: when grace expires and allContribData is loaded,
+  // fire a POST to notify-missed for each non-recipient participant who is still PENDING.
+  // The API route is idempotent — duplicate calls for the same (circleId, member, period) are no-ops.
+  useEffect(() => {
+    if (!earlyGraceExpired) return
+    if (!allContribData || nonRecipientParticipants.length === 0) return
+    if (!creator) return
+
+    const periodIdx = Number(periodIndex)
+    const contribAmountUsdc = Number((contributionAmount as bigint) / 1_000_000n)
+    const deadlineSec = Number(rawPeriodDeadline)
+    const deadlineIso = deadlineSec > 0 ? new Date(deadlineSec * 1000).toISOString() : ''
+    const graceExpirySec = graceExpiry(deadlineSec, rawCircleFrequency)
+    const graceExpiryIso = graceExpirySec > 0 ? new Date(graceExpirySec * 1000).toISOString() : ''
+
+    nonRecipientParticipants.forEach((participant, idx) => {
+      const result = allContribData[idx]
+      if (result?.status !== 'success') return
+      const cr = result.result as { status: number }
+      if (cr.status !== 0) return // not PENDING — already settled
+
+      // Fire-and-forget: we do not block the render on this.
+      void fetch(`/api/circles/${cid.toString()}/notify-missed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creatorWallet: creator,
+          memberWallet: participant,
+          periodIndex: periodIdx,
+          amountDue: String(contribAmountUsdc),
+          circleName: String(circleName ?? ''),
+          deadlineIso,
+          graceExpiryIso,
+        }),
+      }).catch(() => {
+        // Notifications are best-effort — do not disrupt the UI on failure.
+      })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earlyGraceExpired, allContribData])
 
   useEffect(() => {
     if (contributeConfirmed && contributeHash) {
@@ -225,7 +321,10 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
 
   const hasPaid = contributionData !== null && contribution !== null &&
     (contribution.status !== 0 || (contribution.paidAmount ?? 0n) > 0n)
-  const canContribute = !!address && !isRecipient && !deadlinePast && contributionData !== null && !hasPaid
+  // Allow contribution during the grace period (deadlinePast but grace not yet expired).
+  const withinGrace = deadlinePast && !graceExpiredNow
+  const canContribute = !!address && !isRecipient && !graceExpiredNow && contributionData !== null && !hasPaid
+  const isGracePeriodContribution = canContribute && withinGrace
 
   const canFinalize = graceExpiredNow && !!participants && (participants as string[]).length > 0
 
@@ -354,14 +453,27 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
         )}
 
         {canContribute && (
-          <div className="pt-2">
-            <p className="text-xs text-muted mb-3">
-              Approve USDC and contribute <strong>{String((contributionAmount as bigint) / 1_000_000n)} USDC</strong> for this period.
-              Grace period: {circleFrequency === Frequency.DAILY ? '12 hours' : circleFrequency === Frequency.WEEKLY ? '3 days' : '10 days'} after the deadline.
-            </p>
+          <div className={`pt-2${isGracePeriodContribution ? ' rounded-xl bg-amber-50 border border-amber-200 px-3 py-3' : ''}`}>
+            {isGracePeriodContribution ? (
+              <>
+                <p className="text-xs font-semibold text-amber-700 mb-1">Late contribution (grace period)</p>
+                <p className="text-xs text-amber-600 mb-1">
+                  The deadline passed, but the grace period is still open.
+                  You owe <strong>{String((contributionAmount as bigint) / 1_000_000n)} USDC</strong>.
+                </p>
+                <p className="text-xs text-amber-600 mb-3">
+                  Grace ends: {formatDeadline(BigInt(graceExpiry(Number(deadline as bigint), circleFrequency)))}
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted mb-3">
+                Approve USDC and contribute <strong>{String((contributionAmount as bigint) / 1_000_000n)} USDC</strong> for this period.
+                Grace period: {circleFrequency === Frequency.DAILY ? '12 hours' : circleFrequency === Frequency.WEEKLY ? '3 days' : '10 days'} after the deadline.
+              </p>
+            )}
             <UsdcApproveAndAction
               amount={contributionAmount as bigint}
-              actionLabel="Contribute"
+              actionLabel={isGracePeriodContribution ? 'Pay Late' : 'Contribute'}
               onAction={handleContribute}
               actionTxState={contributeTxState}
             />
@@ -389,10 +501,11 @@ export function CurrentPeriod({ cid, circleRaw, address }: CurrentPeriodProps) {
           </div>
         )}
 
-        {deadlinePast && !graceExpiredNow && (
+        {deadlinePast && !graceExpiredNow && hasPaid && (
           <div className="pt-2 rounded-xl bg-amber-50 px-3 py-2">
             <p className="text-xs text-amber-700">
-              Contribution deadline passed. Waiting for grace period to expire before finalization is available.
+              Contribution deadline passed. Grace period still open.
+              Grace ends: {formatDeadline(BigInt(graceExpiry(Number(deadline as bigint), circleFrequency)))}
             </p>
           </div>
         )}
