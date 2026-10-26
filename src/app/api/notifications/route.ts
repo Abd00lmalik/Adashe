@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getUnreadNotifications, markAllRead } from '@/lib/notifications'
+import { getUnreadNotifications, getAllNotifications, markAllRead } from '@/lib/notifications'
 
 export async function GET(request: NextRequest) {
   const wallet = request.nextUrl.searchParams.get('wallet')
   if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) {
     return NextResponse.json({ error: 'Missing or invalid wallet' }, { status: 400 })
   }
+  const all = request.nextUrl.searchParams.get('all') === 'true'
   try {
-    const notifications = await getUnreadNotifications(wallet)
+    const notifications = all
+      ? await getAllNotifications(wallet)
+      : await getUnreadNotifications(wallet)
     return NextResponse.json({ notifications, count: notifications.length })
   } catch {
     return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 })

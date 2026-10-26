@@ -4,10 +4,11 @@ import { ConnectKitButton } from 'connectkit'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { Bell, Plus, Menu, X } from 'lucide-react'
+import { Plus, Menu, X } from 'lucide-react'
 import { useAccount } from 'wagmi'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
+import { NotificationBell } from '@/components/notifications/NotificationPanel'
 
 export function Navbar() {
   const pathname = usePathname()
@@ -147,13 +148,4 @@ export function Navbar() {
   )
 }
 
-function NotificationBell() {
-  return (
-    <button
-      className="relative inline-flex items-center justify-center h-11 w-11 rounded-lg text-muted hover:text-forest-500 hover:bg-forest-50 transition-colors"
-      aria-label="Notifications"
-    >
-      <Bell className="h-4 w-4" />
-    </button>
-  )
-}
+

@@ -94,3 +94,6 @@ CREATE INDEX IF NOT EXISTS "Notification_circle_idx"    ON "Notification"("circl
 -- ALTER TYPE ... ADD VALUE IF NOT EXISTS is idempotent.
 -- ─────────────────────────────────────────────────────────────────────────────
 ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'MISSED_PAYMENT';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'GRACE_PERIOD_WARNING';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'PERIOD_STARTED';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'MEMBER_REPLACED';

@@ -16,6 +16,7 @@ import { PayoutPanel } from '@/components/circle/PayoutPanel'
 import { DebtPanel } from '@/components/circle/DebtPanel'
 import { ReservePanel } from '@/components/circle/ReservePanel'
 import { CreatorPanel } from '@/components/circle/CreatorPanel'
+import { CircleActivityFeed } from '@/components/circle/CircleActivityFeed'
 import { adasheContract, CircleStatus } from '@/lib/contract'
 import { sameAddress } from '@/lib/utils'
 
@@ -144,9 +145,15 @@ function CircleDetailContent({
         </div>
 
         <TabsContent value="overview">
-          <div className="grid lg:grid-cols-2 gap-4">
-            <CurrentPeriod cid={cid} circleRaw={circleRaw} address={address} />
-            {approved && hasDebt && <DebtPanel cid={cid} address={address!} />}
+          <div className="space-y-4">
+            <div className="grid lg:grid-cols-2 gap-4">
+              <CurrentPeriod cid={cid} circleRaw={circleRaw} address={address} />
+              {approved && hasDebt && <DebtPanel cid={cid} address={address!} />}
+            </div>
+            <div className="rounded-2xl border border-ivory-300 bg-white p-4">
+              <h3 className="text-sm font-semibold text-forest-500 mb-3">Activity</h3>
+              <CircleActivityFeed cid={cid} />
+            </div>
           </div>
         </TabsContent>
 
