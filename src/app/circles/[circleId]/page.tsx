@@ -13,6 +13,7 @@ import { MembersList } from '@/components/circle/MembersList'
 import { PeriodTimeline } from '@/components/circle/PeriodTimeline'
 import { CurrentPeriod } from '@/components/circle/CurrentPeriod'
 import { PayoutPanel } from '@/components/circle/PayoutPanel'
+import { ContributionRefundPanel } from '@/components/circle/ContributionRefundPanel'
 import { DebtPanel } from '@/components/circle/DebtPanel'
 import { ReservePanel } from '@/components/circle/ReservePanel'
 import { CreatorPanel } from '@/components/circle/CreatorPanel'
@@ -169,6 +170,7 @@ function CircleDetailContent({
           <TabsContent value="my-position">
             <div className="space-y-4">
               <PayoutPanel cid={cid} circleRaw={circleRaw} address={address!} />
+              <ContributionRefundPanel cid={cid} circleRaw={circleRaw} address={address!} />
               <DebtPanel cid={cid} address={address!} showReserveRepayment={true} />
               <ReservePanel cid={cid} address={address!} />
             </div>

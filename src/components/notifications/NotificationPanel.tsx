@@ -191,11 +191,11 @@ export function NotificationBell() {
         <div
           ref={panelRef}
           className={cn(
-            'z-50 bg-ivory-DEFAULT overflow-hidden',
-            // Mobile: fixed sheet anchored to top of screen, full width with safe-area padding
-            'fixed left-0 right-0 top-[calc(56px+env(safe-area-inset-top))] mx-3 rounded-2xl border border-ivory-300 shadow-float',
-            // Desktop: absolute dropdown anchored to bell button
-            'sm:fixed sm:left-auto sm:right-auto sm:mx-0 sm:absolute sm:top-auto sm:mt-2 sm:w-96 sm:rounded-2xl',
+            'z-50 bg-ivory-DEFAULT overflow-hidden rounded-2xl border border-ivory-300 shadow-float',
+            // Mobile: fixed sheet anchored below the navbar
+            'fixed left-3 right-3 top-[64px]',
+            // sm+: switch to absolute dropdown under the bell, specific width
+            'sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96',
           )}
           role="dialog"
           aria-label="Notifications"

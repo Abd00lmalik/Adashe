@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0xbdb1eadb00f2955b83a6b43ae97cda09a6553c59",
+  "contractAddress": "0x507162ce32cc169185df376ebf9a5aaf4f9fb03d",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/AdasheCircle.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/AdasheCircle.sol/AdasheCircle.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0xbdb1eadb00f2955b83a6b43ae97cda09a6553c59"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x507162ce32cc169185df376ebf9a5aaf4f9fb03d"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0x507162ce32cc169185df376ebf9a5aaf4f9fb03d",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0x507162ce32cc169185df376ebf9a5aaf4f9fb03d",
+      "txHash": "0x6db59534ed95715cf9c0ed66d0c7e12ccdc9e1d2feedfddc2727dc944f194cb2",
+      "deployedAt": "2026-10-27T17:25:11.700Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0xbdb1eadb00f2955b83a6b43ae97cda09a6553c59",
@@ -341,6 +348,24 @@
         }
       ],
       "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "claimContributionRefund",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "periodIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
     },
     {
       "type": "function",
@@ -692,6 +717,35 @@
           "name": "",
           "type": "uint256",
           "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "hasClaimedContributionRefund",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "periodIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "contributor",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
         }
       ],
       "stateMutability": "view"
@@ -1064,6 +1118,37 @@
           "type": "uint8",
           "indexed": false,
           "internalType": "enum AdasheCircle.ContributionStatus"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ContributionRefundClaimed",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "periodIndex",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "contributor",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
         }
       ],
       "anonymous": false

@@ -17,6 +17,7 @@ interface MembersListProps {
 
 export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps) {
   const [, creator, , , memberCount] = circleRaw as [bigint, string, string, bigint, number, ...unknown[]]
+  const periodCount = memberCount as number
 
   const { data: payoutOrderData } = useReadContracts({
     contracts: [{ ...adasheContract, functionName: 'getPayoutOrder', args: [cid] }],
@@ -26,6 +27,7 @@ export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps
     ? (payoutOrderData[0].result as string[])
     : [])
 
+  // Read memberRecords for each member
   const memberRecordContracts = payoutOrder.map((addr) => ({
     ...adasheContract,
     functionName: 'memberRecords' as const,
@@ -34,7 +36,35 @@ export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps
 
   const { data: memberData, isLoading } = useReadContracts({
     contracts: memberRecordContracts,
-    query: { enabled: payoutOrder.length > 0 },
+    query: { enabled: payoutOrder.length > 0, staleTime: 0, refetchOnMount: true },
+  })
+
+  // Read getDebtByPeriod for each member × each period to get creditor-only debt
+  // Layout: [member0_period0, member0_period1, ..., member1_period0, ...]
+  const debtByPeriodContracts = payoutOrder.flatMap((addr) =>
+    Array.from({ length: periodCount }, (_, pi) => ({
+      ...adasheContract,
+      functionName: 'getDebtByPeriod' as const,
+      args: [cid, BigInt(pi), addr as `0x${string}`],
+    }))
+  )
+
+  const { data: debtByPeriodData } = useReadContracts({
+    contracts: debtByPeriodContracts,
+    query: { enabled: payoutOrder.length > 0 && periodCount > 0, staleTime: 0 },
+  })
+
+  // Sum creditor debt per member
+  const creditorDebtByMember: bigint[] = payoutOrder.map((_, mi) => {
+    let total = 0n
+    for (let pi = 0; pi < periodCount; pi++) {
+      const idx = mi * periodCount + pi
+      const result = debtByPeriodData?.[idx]
+      if (result?.status === 'success') {
+        total += result.result as bigint
+      }
+    }
+    return total
   })
 
   if (isLoading || !payoutOrder.length) {
@@ -57,12 +87,13 @@ export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps
           const approved       = rec?.[0] ?? false
           const joined         = rec?.[1] ?? false
           const reserveBalance = rec?.[2] ?? 0n
-          const debtBalance    = rec?.[3] ?? 0n
           const removedAt      = rec?.[5] ?? ''
-          const isCreatorAddr = sameAddress(addr, creator as string)
-          const isSelf = sameAddress(addr, currentAddress)
-          const isRemoved = typeof removedAt === 'bigint' ? removedAt > 0n : false
-          const hasDebt = (debtBalance as bigint) > 0n
+          const isCreatorAddr  = sameAddress(addr, creator as string)
+          const isSelf         = sameAddress(addr, currentAddress)
+          const isRemoved      = typeof removedAt === 'bigint' ? removedAt > 0n : false
+          // Only show creditor debt (not reserve-repayment debt)
+          const creditorDebt   = creditorDebtByMember[i] ?? 0n
+          const hasCreditorDebt = creditorDebt > 0n
 
           return (
             <div
@@ -92,10 +123,10 @@ export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-muted mb-0.5">Debt</p>
-                  {hasDebt ? (
+                  {hasCreditorDebt ? (
                     <span className="flex items-center gap-1 text-danger">
                       <AlertTriangle className="h-3 w-3" />
-                      <UsdcAmount amount={debtBalance as bigint} size="sm" className="text-danger" />
+                      <UsdcAmount amount={creditorDebt} size="sm" className="text-danger" />
                     </span>
                   ) : (
                     <span className="text-muted">—</span>
@@ -109,7 +140,6 @@ export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps
 
       {/* Desktop: table (hidden below sm) */}
       <div className="hidden sm:block card p-0 overflow-hidden">
-        {/* Horizontal scroll safety net */}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -126,16 +156,15 @@ export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps
                 const rec = memberData?.[i]?.status === 'success'
                   ? (memberData[i].result as [boolean, boolean, bigint, bigint, bigint, string])
                   : null
-                // memberRecords: (approved, joined, reserveBalance, debtBalance, positionPlusOne, removedAt)
                 const approved       = rec?.[0] ?? false
                 const joined         = rec?.[1] ?? false
                 const reserveBalance = rec?.[2] ?? 0n
-                const debtBalance    = rec?.[3] ?? 0n
                 const removedAt      = rec?.[5] ?? ''
-                const isCreatorAddr = sameAddress(addr, creator as string)
-                const isSelf = sameAddress(addr, currentAddress)
-                const isRemoved = typeof removedAt === 'bigint' ? removedAt > 0n : false
-                const hasDebt = (debtBalance as bigint) > 0n
+                const isCreatorAddr  = sameAddress(addr, creator as string)
+                const isSelf         = sameAddress(addr, currentAddress)
+                const isRemoved      = typeof removedAt === 'bigint' ? removedAt > 0n : false
+                const creditorDebt   = creditorDebtByMember[i] ?? 0n
+                const hasCreditorDebt = creditorDebt > 0n
 
                 return (
                   <tr
@@ -159,10 +188,10 @@ export function MembersList({ cid, circleRaw, currentAddress }: MembersListProps
                       <UsdcAmount amount={reserveBalance as bigint} size="sm" />
                     </td>
                     <td className="px-5 py-3 text-right">
-                      {hasDebt ? (
+                      {hasCreditorDebt ? (
                         <span className="flex items-center justify-end gap-1 text-danger">
                           <AlertTriangle className="h-3.5 w-3.5" />
-                          <UsdcAmount amount={debtBalance as bigint} size="sm" className="text-danger" />
+                          <UsdcAmount amount={creditorDebt} size="sm" className="text-danger" />
                         </span>
                       ) : (
                         <span className="text-muted text-xs">—</span>

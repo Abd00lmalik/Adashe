@@ -36,6 +36,16 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
     query: { staleTime: 0, refetchOnMount: true },
   })
 
+  // Read member record to check for outstanding debt before showing claim button
+  const { data: memberRecData } = useReadContracts({
+    contracts: [{ ...adasheContract, functionName: 'memberRecords' as const, args: [cid, address as `0x${string}`] }],
+    query: { staleTime: 0, refetchOnMount: true },
+  })
+  const debtBalance: bigint = memberRecData?.[0]?.status === 'success'
+    ? ((memberRecData[0].result as [boolean, boolean, bigint, bigint, bigint, string])[3] ?? 0n)
+    : 0n
+  const hasDebt = debtBalance > 0n
+
   const { writeContractAsync } = useWriteContract()
 
   // Receipt watcher for the claim tx
@@ -196,7 +206,7 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
             )
           }
 
-          // Claimable — show remaining amount and claim button
+          // Claimable — show remaining amount; gate claim button on debt == 0
           return (
             <div key={periodIndex} className="space-y-3 rounded-xl bg-surface border p-4">
               <div className="flex items-center justify-between">
@@ -210,11 +220,22 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
                   <UsdcAmount amount={progressivelyPaid} /> already claimed progressively.
                 </p>
               )}
-              <TxButton
-                txState={txState}
-                onAction={() => handleClaim(periodIndex)}
-                idleLabel={`Claim ${String(claimableAmount / 1_000_000n)} USDC`}
-              />
+              {hasDebt ? (
+                <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3">
+                  <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                  <div className="text-xs text-red-700 text-pretty">
+                    <p className="font-medium mb-0.5">Outstanding debt blocks this payout</p>
+                    <p>Repay <UsdcAmount amount={debtBalance} className="text-red-700" /> of debt in
+                    {' '}<span className="font-medium">My Position</span> to become eligible.</p>
+                  </div>
+                </div>
+              ) : (
+                <TxButton
+                  txState={txState}
+                  onAction={() => handleClaim(periodIndex)}
+                  idleLabel={`Claim ${String(claimableAmount / 1_000_000n)} USDC`}
+                />
+              )}
             </div>
           )
         })}

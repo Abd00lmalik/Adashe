@@ -98,6 +98,8 @@ contract AdasheCircle is ReentrancyGuard {
     // Tracks the portion of a member's debt that was covered by reserve in a given period.
     // This amount is owed back to the period's recipient's reserve balance, not to any direct creditor.
     mapping(uint256 => mapping(uint256 => mapping(address => uint256))) private _reserveDebtByPeriod;
+    // Tracks whether a contributor has already claimed their contribution refund for a withheld-payout period.
+    mapping(uint256 => mapping(uint256 => mapping(address => bool))) private _contributionRefundClaimed;
 
     mapping(uint256 => mapping(address => bool)) public isInPayoutOrder;
     mapping(uint256 => mapping(address => uint256)) private _positionPlusOne;
@@ -143,6 +145,7 @@ contract AdasheCircle is ReentrancyGuard {
     );
     event DebtRepaid(uint256 indexed circleId, uint256 indexed periodIndex, address indexed member, uint256 amount);
     event ReserveRefunded(uint256 indexed circleId, address indexed member, uint256 amount);
+    event ContributionRefundClaimed(uint256 indexed circleId, uint256 indexed periodIndex, address indexed contributor, uint256 amount);
     event WithheldPayoutClaimed(
         uint256 indexed circleId,
         uint256 indexed periodIndex,
@@ -716,6 +719,58 @@ contract AdasheCircle is ReentrancyGuard {
         usdc.safeTransfer(msg.sender, refund);
 
         emit ReserveRefunded(circleId, msg.sender, refund);
+    }
+
+    /// @notice After the circle completes, a contributor can reclaim their contribution
+    /// to a period where the recipient's payout was withheld and never released.
+    /// This handles the case where the recipient refused to clear their debt, the circle
+    /// ended, and contributors would otherwise have their funds locked in the contract.
+    /// Each contributor can only claim once per period.
+    function claimContributionRefund(uint256 circleId, uint256 periodIndex) external nonReentrant {
+        Circle storage c = _requireCircle(circleId);
+        require(c.status == CircleStatus.COMPLETED, "circle not completed");
+
+        Period storage p = _periods[circleId][periodIndex];
+        require(p.initialized, "period not initialized");
+        require(p.payoutWithheld && !p.payoutReleased, "payout not withheld or already released");
+        require(msg.sender != p.recipient, "recipient cannot claim contribution refund");
+
+        // Verify caller actually paid into this period.
+        ContributionRecord storage cr = p.contributions[msg.sender];
+        require(
+            cr.status == ContributionStatus.PAID ||
+            cr.status == ContributionStatus.LATE_PAID ||
+            cr.status == ContributionStatus.COVERED_BY_RESERVE,
+            "no paid contribution found"
+        );
+        require(cr.paidAmount > 0, "nothing to refund");
+        require(!_contributionRefundClaimed[circleId][periodIndex][msg.sender], "refund already claimed");
+
+        _contributionRefundClaimed[circleId][periodIndex][msg.sender] = true;
+
+        uint256 refundAmount = cr.paidAmount;
+
+        // Reduce the withheld claimable amount so the recipient cannot later claim
+        // funds that have already been returned to contributors.
+        if (p.claimableAmount >= refundAmount) {
+            p.claimableAmount -= refundAmount;
+        } else {
+            p.claimableAmount = 0;
+        }
+
+        usdc.safeTransfer(msg.sender, refundAmount);
+
+        emit ContributionRefundClaimed(circleId, periodIndex, msg.sender, refundAmount);
+    }
+
+    /// @notice Returns whether a contributor has already claimed their contribution refund
+    /// for a given withheld-payout period.
+    function hasClaimedContributionRefund(
+        uint256 circleId,
+        uint256 periodIndex,
+        address contributor
+    ) external view returns (bool) {
+        return _contributionRefundClaimed[circleId][periodIndex][contributor];
     }
 
     function settleOwnDebtFromWithheldPayout(
