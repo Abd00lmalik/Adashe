@@ -94,6 +94,7 @@ export function CircleActivityFeed({ cid }: CircleActivityFeedProps) {
   const frequency = circleRaw[5] as number
   const status = circleRaw[9] as number          // CircleStatus
   const currentPeriodIndex = circleRaw[11] as number
+  const reserveAmount = circleRaw[12] as bigint
   const gracePeriodSecs = circleRaw[13] as bigint
 
   const isCreator = !!address && address.toLowerCase() === creator
@@ -108,6 +109,7 @@ export function CircleActivityFeed({ cid }: CircleActivityFeedProps) {
       memberCount={memberCount}
       frequency={frequency}
       currentPeriodIndex={currentPeriodIndex}
+      reserveAmount={reserveAmount}
       gracePeriodSecs={gracePeriodSecs}
     />
   )
@@ -122,6 +124,7 @@ function CircleActivityFeedInner({
   memberCount,
   frequency,
   currentPeriodIndex,
+  reserveAmount,
   gracePeriodSecs,
 }: {
   cid: bigint
@@ -131,6 +134,7 @@ function CircleActivityFeedInner({
   memberCount: number
   frequency: number
   currentPeriodIndex: number
+  reserveAmount: bigint
   gracePeriodSecs: bigint
 }) {
   // Read current period + all previous periods' payoutReleased
@@ -202,6 +206,7 @@ function CircleActivityFeedInner({
     currentPeriodIndex,
     frequency,
     gracePeriodSecs,
+    reserveAmount,
     periodData,
     contributionMap,
     previousPeriods,

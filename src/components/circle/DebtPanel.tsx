@@ -15,9 +15,11 @@ import type { TxState } from '@/components/tx/TxButton'
 interface DebtPanelProps {
   cid: bigint
   address: string
+  /** Show reserve repayment section. Default false — only show on My Position tab. */
+  showReserveRepayment?: boolean
 }
 
-export function DebtPanel({ cid, address }: DebtPanelProps) {
+export function DebtPanel({ cid, address, showReserveRepayment = false }: DebtPanelProps) {
   const [repayTxStates, setRepayTxStates] = useState<Record<string, TxState>>({})
   const [repayReserveTxStates, setRepayReserveTxStates] = useState<Record<string, TxState>>({})
   const [repayHash, setRepayHash] = useState<`0x${string}` | undefined>()
@@ -223,8 +225,8 @@ export function DebtPanel({ cid, address }: DebtPanelProps) {
         </CardContent>
       </Card>
 
-      {/* ── Reserve restoration (optional, not blocking) ── */}
-      {hasReserveDebt && (
+      {/* ── Reserve restoration (optional, not blocking) — only shown on My Position tab ── */}
+      {hasReserveDebt && showReserveRepayment && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-amber-700">

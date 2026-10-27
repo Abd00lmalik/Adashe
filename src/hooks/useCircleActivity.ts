@@ -53,6 +53,7 @@ interface UseCircleActivityParams {
   currentPeriodIndex: number
   frequency: number                   // Frequency enum value
   gracePeriodSecs: bigint             // from circles() getter
+  reserveAmount?: bigint              // from circles() getter — used to compute exact available
   periodData?: PeriodData | null
   /** map of participant address → ContribRecord for current period */
   contributionMap?: Record<string, ContribRecord>
@@ -69,6 +70,7 @@ export function useCircleActivity({
   currentPeriodIndex,
   frequency,
   gracePeriodSecs,
+  reserveAmount = 0n,
   periodData,
   contributionMap = {},
   previousPeriods = [],
@@ -147,7 +149,23 @@ export function useCircleActivity({
     if (isRecipient && !periodData.payoutReleased) {
       const claimable = periodData.claimableAmount
       const progressive = periodData.progressivelyPaid
-      if (claimable > 0n || progressive > 0n) {
+
+      // Compute how much is actually available right now from the contribution map.
+      // paidSoFar = sum of PAID (1) + LATE_PAID (2) + COVERED_BY_RESERVE (4) contributions.
+      let paidSoFar = 0n
+      for (const cr of Object.values(contributionMap)) {
+        if (cr.status === 1 || cr.status === 2 || cr.status === 4) {
+          paidSoFar += cr.paidAmount
+        }
+      }
+      const spendable = paidSoFar > reserveAmount ? paidSoFar - reserveAmount : 0n
+      const exactAvailableNow = spendable > progressive ? spendable - progressive : 0n
+
+      // Only show if there is something genuinely new to claim:
+      // — a finalized period with claimable > 0, OR
+      // — an open period with exact available > 0 (contributions above reserve threshold, not yet claimed)
+      const hasSomethingToClaim = claimable > 0n || exactAvailableNow > 0n
+      if (hasSomethingToClaim) {
         items.push({
           id: `payout-${cid}-${currentPeriodIndex}`,
           circleId: cid,
@@ -155,7 +173,7 @@ export function useCircleActivity({
           title: 'Payout available',
           body: claimable > 0n
             ? `You have ${Number(claimable) / 1_000_000} USDC ready to claim for Period ${currentPeriodIndex + 1}.`
-            : `${Number(progressive) / 1_000_000} USDC claimed progressively for Period ${currentPeriodIndex + 1}.`,
+            : `${Number(exactAvailableNow) / 1_000_000} USDC available to claim for Period ${currentPeriodIndex + 1}.`,
           createdAt: new Date().toISOString(),
           readAt: null,
         })
@@ -223,6 +241,6 @@ export function useCircleActivity({
     return items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [
     circleId, address, isCreator, currentPeriodIndex, frequency,
-    gracePeriodSecs, periodData, contributionMap, previousPeriods,
+    gracePeriodSecs, reserveAmount, periodData, contributionMap, previousPeriods,
   ])
 }

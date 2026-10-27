@@ -169,7 +169,7 @@ function CircleDetailContent({
           <TabsContent value="my-position">
             <div className="space-y-4">
               <PayoutPanel cid={cid} circleRaw={circleRaw} address={address!} />
-              <DebtPanel cid={cid} address={address!} />
+              <DebtPanel cid={cid} address={address!} showReserveRepayment={true} />
               <ReservePanel cid={cid} address={address!} />
             </div>
           </TabsContent>

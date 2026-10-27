@@ -177,11 +177,26 @@ export function NotificationBell() {
         )}
       </button>
 
-      {/* Dropdown panel */}
+      {/* Mobile backdrop */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 sm:hidden bg-black/30"
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Dropdown panel — fixed full-width sheet on mobile, absolute dropdown on sm+ */}
       {open && (
         <div
           ref={panelRef}
-          className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border border-ivory-300 bg-ivory-DEFAULT shadow-float z-50 overflow-hidden"
+          className={cn(
+            'z-50 bg-ivory-DEFAULT overflow-hidden',
+            // Mobile: fixed sheet anchored to top of screen, full width with safe-area padding
+            'fixed left-0 right-0 top-[calc(56px+env(safe-area-inset-top))] mx-3 rounded-2xl border border-ivory-300 shadow-float',
+            // Desktop: absolute dropdown anchored to bell button
+            'sm:fixed sm:left-auto sm:right-auto sm:mx-0 sm:absolute sm:top-auto sm:mt-2 sm:w-96 sm:rounded-2xl',
+          )}
           role="dialog"
           aria-label="Notifications"
         >
@@ -215,7 +230,7 @@ export function NotificationBell() {
           </div>
 
           {/* List */}
-          <div className="max-h-[420px] overflow-y-auto overscroll-contain divide-y divide-ivory-100">
+          <div className="max-h-[60vh] sm:max-h-[420px] overflow-y-auto overscroll-contain divide-y divide-ivory-100">
             {loading && notifications.length === 0 ? (
               <div className="flex items-center justify-center py-10">
                 <div className="h-5 w-5 rounded-full border-2 border-forest-300 border-t-forest-500 animate-spin" />

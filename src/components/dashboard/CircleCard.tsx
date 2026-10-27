@@ -10,6 +10,7 @@ import { CountdownTimer } from '@/components/ui/CountdownTimer'
 import { CircleStatusBadge } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { sameAddress } from '@/lib/utils'
+import { useMemo } from 'react'
 
 interface CircleCardProps {
   circleId: bigint
@@ -27,10 +28,44 @@ export function CircleCard({ circleId }: CircleCardProps) {
     ],
   })
 
-  if (isLoading) return <Skeleton className="h-48 rounded-2xl" />
-
   const circleData = data?.[0]?.status === 'success' ? data[0].result : null
   const memberData = data?.[1]?.status === 'success' ? data[1].result : null
+
+  const memberCount: number = circleData
+    ? (circleData as [bigint, string, string, bigint, number, ...unknown[]])[4]
+    : 0
+
+  const approved = memberData
+    ? (memberData as [boolean, boolean, bigint, bigint, bigint, string])[0]
+    : false
+
+  // Read per-period creditor debt to distinguish real debt from reserve repayment.
+  // Only enabled when the member is approved and we have a memberCount.
+  const debtContracts = useMemo(() =>
+    approved && address && memberCount > 0
+      ? Array.from({ length: memberCount }, (_, i) => ({
+          ...adasheContract,
+          functionName: 'getDebtByPeriod' as const,
+          args: [circleId, BigInt(i), address as `0x${string}`],
+        }))
+      : [],
+    [approved, address, memberCount, circleId]
+  )
+
+  const { data: debtData } = useReadContracts({
+    contracts: debtContracts,
+    query: { enabled: debtContracts.length > 0 },
+  })
+
+  const creditorDebtTotal = useMemo(() => {
+    if (!debtData) return 0n
+    return debtData.reduce((sum, r) => {
+      if (r?.status !== 'success') return sum
+      return sum + (r.result as bigint)
+    }, 0n)
+  }, [debtData])
+
+  if (isLoading) return <Skeleton className="h-48 rounded-2xl" />
 
   if (!circleData) {
     return (
@@ -41,15 +76,12 @@ export function CircleCard({ circleId }: CircleCardProps) {
   }
 
   const [
-    cId, creator, name, contributionAmount, memberCount, , , , , status, startTime, currentPeriod, ,
+    cId, creator, name, contributionAmount, , , , , , status, startTime, currentPeriod, ,
   ] = circleData as [bigint, string, string, bigint, number, number, number, number, string, number, bigint, number, bigint, bigint]
 
-  const [approved, , , debtBalance] = memberData
-    ? (memberData as [boolean, boolean, bigint, bigint, bigint, string])
-    : [false, false, 0n, 0n, 0n, '']
-
   const isCreator = sameAddress(creator, address)
-  const hasDebt = (debtBalance as bigint) > 0n
+  // Only show blocking debt banner for creditor debt — not reserve repayment.
+  const hasBlockingDebt = creditorDebtTotal > 0n
 
   return (
     <Link href={`/circles/${cId.toString()}`} className="block group">
@@ -95,7 +127,8 @@ export function CircleCard({ circleId }: CircleCardProps) {
           )}
         </div>
 
-        {hasDebt && (
+        {/* Only show debt warning for genuine creditor debt — reserve repayment is not blocking */}
+        {hasBlockingDebt && (
           <div className="mt-4 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
             You have outstanding debt. Payout blocked.
