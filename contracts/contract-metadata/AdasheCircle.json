@@ -1,13 +1,27 @@
 {
-  "contractAddress": "0x507162ce32cc169185df376ebf9a5aaf4f9fb03d",
+  "contractAddress": "0x2d48a3e2dd85f8b25acec5c4338790fd83beaf96",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/AdasheCircle.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/AdasheCircle.sol/AdasheCircle.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x507162ce32cc169185df376ebf9a5aaf4f9fb03d"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x2d48a3e2dd85f8b25acec5c4338790fd83beaf96"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0x2d48a3e2dd85f8b25acec5c4338790fd83beaf96",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0x2d48a3e2dd85f8b25acec5c4338790fd83beaf96",
+      "txHash": "0x5bc42dbe38345f70fd55952314929d0f4b3472e1ecaa216fffa4d784e2d40765",
+      "deployedAt": "2026-10-28T10:58:00.529Z"
+    },
+    {
+      "chain": "Arc Testnet",
+      "address": "0xaaacc3c0971b3c22e51f91158bab762c4dd4e7c9",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0xaaacc3c0971b3c22e51f91158bab762c4dd4e7c9",
+      "txHash": "0xbcc6dfd87f15779a9649be247e48645641ea915e492d3d2a1af11162eeb8bc41",
+      "deployedAt": "2026-10-27T17:55:39.740Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0x507162ce32cc169185df376ebf9a5aaf4f9fb03d",
@@ -369,6 +383,19 @@
     },
     {
       "type": "function",
+      "name": "claimLateRepayment",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "claimPayout",
       "inputs": [
         {
@@ -624,6 +651,30 @@
           "name": "",
           "type": "address[]",
           "internalType": "address[]"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getPendingCreditorBalance",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "creditor",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "stateMutability": "view"
@@ -1140,6 +1191,31 @@
         },
         {
           "name": "contributor",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "CreditorBalanceCredited",
+      "inputs": [
+        {
+          "name": "circleId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "creditor",
           "type": "address",
           "indexed": true,
           "internalType": "address"

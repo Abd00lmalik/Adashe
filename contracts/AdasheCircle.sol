@@ -101,6 +101,13 @@ contract AdasheCircle is ReentrancyGuard {
     // Tracks whether a contributor has already claimed their contribution refund for a withheld-payout period.
     mapping(uint256 => mapping(uint256 => mapping(address => bool))) private _contributionRefundClaimed;
 
+    // Tracks USDC owed to a creditor from late debt repayments that arrived after
+    // their payout was already released. Stored per-circle per-address so the
+    // creditor can pull it at any time via claimLateRepayment().
+    // This pattern avoids pushing USDC to addresses that may be USDC-blocklisted,
+    // which would permanently lock the debtor's ability to repay.
+    mapping(uint256 => mapping(address => uint256)) private _pendingCreditorBalance;
+
     mapping(uint256 => mapping(address => bool)) public isInPayoutOrder;
     mapping(uint256 => mapping(address => uint256)) private _positionPlusOne;
     mapping(uint256 => mapping(address => address)) public pendingReplacement;
@@ -144,6 +151,9 @@ contract AdasheCircle is ReentrancyGuard {
         uint256 newDeadline
     );
     event DebtRepaid(uint256 indexed circleId, uint256 indexed periodIndex, address indexed member, uint256 amount);
+    /// @dev Emitted when a late debt repayment is credited to a creditor's pending balance
+    /// because their payout had already been released (pull model to avoid blocklist issues).
+    event CreditorBalanceCredited(uint256 indexed circleId, address indexed creditor, uint256 amount);
     event ReserveRefunded(uint256 indexed circleId, address indexed member, uint256 amount);
     event ContributionRefundClaimed(uint256 indexed circleId, uint256 indexed periodIndex, address indexed contributor, uint256 amount);
     event WithheldPayoutClaimed(
@@ -415,7 +425,12 @@ contract AdasheCircle is ReentrancyGuard {
         usdc.safeTransferFrom(msg.sender, address(this), amount);
 
         if (p.payoutReleased) {
-            usdc.safeTransfer(p.recipient, amount);
+            // The creditor has already claimed their payout. Credit their pending balance
+            // so they can pull it via claimLateRepayment(). This avoids pushing USDC to
+            // an address that may be USDC-blocklisted, which would permanently revert this
+            // transaction and leave the debtor unable to clear their obligation.
+            _pendingCreditorBalance[circleId][p.recipient] += amount;
+            emit CreditorBalanceCredited(circleId, p.recipient, amount);
         } else {
             p.claimableAmount += amount;
         }
@@ -748,15 +763,14 @@ contract AdasheCircle is ReentrancyGuard {
 
         _contributionRefundClaimed[circleId][periodIndex][msg.sender] = true;
 
-        uint256 refundAmount = cr.paidAmount;
-
-        // Reduce the withheld claimable amount so the recipient cannot later claim
-        // funds that have already been returned to contributors.
-        if (p.claimableAmount >= refundAmount) {
-            p.claimableAmount -= refundAmount;
-        } else {
-            p.claimableAmount = 0;
-        }
+        // Cap the refund to the actual remaining withheld claimable amount.
+        // This prevents draining pooled USDC from other periods or circles.
+        // If the period's claimableAmount has already been reduced to zero by prior
+        // refunds or recipient settlement, there is nothing left to return.
+        uint256 requested = cr.paidAmount;
+        require(p.claimableAmount > 0, "no withheld funds remaining");
+        uint256 refundAmount = requested <= p.claimableAmount ? requested : p.claimableAmount;
+        p.claimableAmount -= refundAmount;
 
         usdc.safeTransfer(msg.sender, refundAmount);
 
@@ -771,6 +785,25 @@ contract AdasheCircle is ReentrancyGuard {
         address contributor
     ) external view returns (bool) {
         return _contributionRefundClaimed[circleId][periodIndex][contributor];
+    }
+
+    /// @notice Claim any USDC credited to your pending creditor balance from late
+    /// debt repayments. This is the pull side of the blocklist-safe repayment model:
+    /// when a debtor repays you after your payout was already released, the funds are
+    /// held here rather than pushed to your wallet, so a blocklisted creditor cannot
+    /// freeze the debtor's repayment. Anyone can call claimLateRepayment at any time.
+    function claimLateRepayment(uint256 circleId) external nonReentrant {
+        _requireCircle(circleId);
+        uint256 amount = _pendingCreditorBalance[circleId][msg.sender];
+        require(amount > 0, "no pending repayment");
+        _pendingCreditorBalance[circleId][msg.sender] = 0;
+        usdc.safeTransfer(msg.sender, amount);
+        emit CreditorBalanceCredited(circleId, msg.sender, amount);
+    }
+
+    /// @notice Returns the pending creditor balance for an address in a circle.
+    function getPendingCreditorBalance(uint256 circleId, address creditor) external view returns (uint256) {
+        return _pendingCreditorBalance[circleId][creditor];
     }
 
     function settleOwnDebtFromWithheldPayout(
@@ -809,7 +842,10 @@ contract AdasheCircle is ReentrancyGuard {
             p.claimableAmount -= amountToSettle;
 
             if (creditorPeriod.payoutReleased) {
-                usdc.safeTransfer(creditorPeriod.recipient, amountToSettle);
+                // Pull model: credit the creditor's pending balance rather than pushing.
+                // Prevents a blocklisted creditor from freezing the debtor's settlement.
+                _pendingCreditorBalance[circleId][creditorPeriod.recipient] += amountToSettle;
+                emit CreditorBalanceCredited(circleId, creditorPeriod.recipient, amountToSettle);
             } else {
                 creditorPeriod.claimableAmount += amountToSettle;
             }

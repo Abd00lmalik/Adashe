@@ -212,31 +212,34 @@ contract ScenarioDTest is Test {
         // Record balances before refunds.
         uint256 aBalBefore = usdc.balanceOf(walletA);
         uint256 bBalBefore = usdc.balanceOf(walletB);
-        uint256 dBalBefore = usdc.balanceOf(walletD);
 
-        // A claims their contribution refund.
+        // Compute actual claimable amount for period 2.
+        // netPayout = 3 × CONTRIBUTION − reserveCredit(CONTRIBUTION) = 2 × CONTRIBUTION
+        // The reserve (CONTRIBUTION) is held separately and credited at finalization.
+        // So total refundable = claimable2 = 2 × CONTRIBUTION.
+        // Only 2 contributors can receive full refunds. The 3rd finds claimableAmount = 0.
+        assertEq(claimable2, 2 * CONTRIBUTION, "claimable should be 2 x CONTRIBUTION");
+
+        // A claims their contribution refund (full CONTRIBUTION, claimable → CONTRIBUTION).
         vm.prank(walletA);
         adashe.claimContributionRefund(cid, 2);
         assertEq(usdc.balanceOf(walletA), aBalBefore + CONTRIBUTION, "A should get CONTRIBUTION back");
         assertTrue(adashe.hasClaimedContributionRefund(cid, 2, walletA), "A refund flag set");
 
-        // B claims their contribution refund.
+        // B claims their contribution refund (full CONTRIBUTION, claimable → 0).
         vm.prank(walletB);
         adashe.claimContributionRefund(cid, 2);
         assertEq(usdc.balanceOf(walletB), bBalBefore + CONTRIBUTION, "B should get CONTRIBUTION back");
         assertTrue(adashe.hasClaimedContributionRefund(cid, 2, walletB), "B refund flag set");
 
-        // D claims their contribution refund.
+        // D tries to claim but claimableAmount is already 0 — should revert.
         vm.prank(walletD);
+        vm.expectRevert("no withheld funds remaining");
         adashe.claimContributionRefund(cid, 2);
-        assertEq(usdc.balanceOf(walletD), dBalBefore + CONTRIBUTION, "D should get CONTRIBUTION back");
-        assertTrue(adashe.hasClaimedContributionRefund(cid, 2, walletD), "D refund flag set");
 
-        // claimableAmount should have decreased by 3 × CONTRIBUTION (or to 0).
+        // claimableAmount should be 0 after A and B claimed.
         (, , , , , , uint256 claimableAfter, , ) = adashe.getPeriod(cid, 2);
-        // netPayout = 3 × CONTRIBUTION − reserveCredit(CONTRIBUTION) = 2 × CONTRIBUTION
-        // After 3 refunds of CONTRIBUTION each: 2 × CONTRIBUTION − 3 × CONTRIBUTION → clamped to 0
-        assertEq(claimableAfter, 0, "claimableAmount should reach 0 after all refunds");
+        assertEq(claimableAfter, 0, "claimableAmount should be 0 after refunds exhausted");
     }
 
     // ══════════════════════════════════════════════════════════════════════════

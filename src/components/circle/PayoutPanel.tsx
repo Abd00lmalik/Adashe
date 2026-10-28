@@ -37,7 +37,7 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
   })
 
   // Read member record to check for outstanding debt before showing claim button
-  const { data: memberRecData } = useReadContracts({
+  const { data: memberRecData, refetch: refetchMemberRec } = useReadContracts({
     contracts: [{ ...adasheContract, functionName: 'memberRecords' as const, args: [cid, address as `0x${string}`] }],
     query: { staleTime: 0, refetchOnMount: true },
   })
@@ -45,6 +45,18 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
     ? ((memberRecData[0].result as [boolean, boolean, bigint, bigint, bigint, string])[3] ?? 0n)
     : 0n
   const hasDebt = debtBalance > 0n
+
+  // Read pending creditor balance (from late debt repayments via pull model)
+  const { data: pendingCredData, refetch: refetchPendingCred } = useReadContracts({
+    contracts: [{ ...adasheContract, functionName: 'getPendingCreditorBalance' as const, args: [cid, address as `0x${string}`] }],
+    query: { staleTime: 0, refetchOnMount: true },
+  })
+  const pendingCreditorBalance: bigint = pendingCredData?.[0]?.status === 'success'
+    ? (pendingCredData[0].result as bigint) ?? 0n
+    : 0n
+
+  const [lateClaimTxState, setLateClaimTxState] = useState<TxState>({ status: 'idle' })
+  const [lateClaimHash, setLateClaimHash] = useState<`0x${string}` | undefined>()
 
   const { writeContractAsync } = useWriteContract()
 
@@ -60,13 +72,54 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
       toast.success('Payout claimed successfully!')
       queryClient.invalidateQueries()
       refetch()
+      refetchMemberRec()
       setClaimHash(undefined)
     }
     if (claimFailed && claimHash) {
       setTxState({ status: 'error', message: 'Claim transaction failed on-chain.' })
       setClaimHash(undefined)
     }
-  }, [claimConfirmed, claimFailed, claimHash, queryClient, refetch])
+  }, [claimConfirmed, claimFailed, claimHash, queryClient, refetch, refetchMemberRec])
+
+  // Receipt watcher for claimLateRepayment tx
+  const { isSuccess: lateClaimConfirmed, isError: lateClaimFailed } = useWaitForTransactionReceipt({
+    hash: lateClaimHash,
+    query: { enabled: !!lateClaimHash },
+  })
+
+  useEffect(() => {
+    if (lateClaimConfirmed && lateClaimHash) {
+      setLateClaimTxState({ status: 'success', hash: lateClaimHash })
+      toast.success('Late repayment claimed!')
+      queryClient.invalidateQueries()
+      refetchPendingCred()
+      setLateClaimHash(undefined)
+    }
+    if (lateClaimFailed && lateClaimHash) {
+      setLateClaimTxState({ status: 'error', message: 'Claim failed on-chain.' })
+      setLateClaimHash(undefined)
+    }
+  }, [lateClaimConfirmed, lateClaimFailed, lateClaimHash, queryClient, refetchPendingCred])
+
+  const handleClaimLateRepayment = async () => {
+    setLateClaimTxState({ status: 'signing' })
+    try {
+      const hash = await writeContractAsync({
+        address: adasheContract.address,
+        abi: CONTRACT_ABI as Parameters<typeof writeContractAsync>[0]['abi'],
+        functionName: 'claimLateRepayment',
+        args: [cid],
+      })
+      setLateClaimHash(hash)
+      setLateClaimTxState({ status: 'confirming', hash })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed'
+      setLateClaimTxState({
+        status: 'error',
+        message: msg.includes('User rejected') ? 'You rejected the transaction.' : `Failed: ${msg.slice(0, 100)}`,
+      })
+    }
+  }
 
   // getPeriod returns 9 values (v10):
   // [0] recipient: address
@@ -239,6 +292,27 @@ export function PayoutPanel({ cid, circleRaw, address }: PayoutPanelProps) {
             </div>
           )
         })}
+
+        {/* Late repayment section — shows when a debtor repaid after payout was released */}
+        {pendingCreditorBalance > 0n && (
+          <div className="rounded-xl bg-surface border p-4 space-y-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-terracotta shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium">Late repayment available</p>
+                <p className="text-xs text-muted mt-0.5 text-pretty">
+                  A member repaid <UsdcAmount amount={pendingCreditorBalance} /> of debt they owed you after your payout was already released. Claim it now.
+                </p>
+              </div>
+            </div>
+            <TxButton
+              txState={lateClaimTxState}
+              onAction={handleClaimLateRepayment}
+              idleLabel={`Claim ${String(pendingCreditorBalance / 1_000_000n)} USDC`}
+              size="sm"
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   )
