@@ -14,7 +14,7 @@ import { useMemo } from 'react'
 
 // We index circle IDs that include the connected wallet by reading `isInPayoutOrder`
 // for circles 1..N. In production, a backend indexer would provide this list.
-// Here we scan up to 20 circles as a reasonable testnet limit.
+// Here we scan up to 20 circles as a reasonable on-chain scan limit.
 const MAX_CIRCLES_TO_SCAN = 20
 
 export default function DashboardPage() {

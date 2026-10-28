@@ -125,14 +125,9 @@ export function CreateCircleForm() {
 
       // Wait for the receipt so we can extract the circleId from the CircleCreated event
       const { createPublicClient, http } = await import('viem')
-      const { defineChain } = await import('viem')
-      const arcTestnet = defineChain({
-        id: 5042002,
-        name: 'Arc Testnet',
-        nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-        rpcUrls: { default: { http: ['https://rpc.testnet.arc.io'] } },
-      })
-      const publicClient = createPublicClient({ chain: arcTestnet, transport: http('https://rpc.testnet.arc.io') })
+      const { activeChain } = await import('@/lib/wagmi')
+      const rpcUrl = activeChain.rpcUrls.default.http[0]
+      const publicClient = createPublicClient({ chain: activeChain, transport: http(rpcUrl) })
       const receipt = await publicClient.waitForTransactionReceipt({ hash: hash as `0x${string}` })
 
       // Decode CircleCreated event to get the circleId

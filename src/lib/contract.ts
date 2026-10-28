@@ -1,12 +1,12 @@
 import type { Address, Abi } from 'viem'
 
 // ABI sourced directly from the compiled artifact — do not edit manually.
-// Contract: AdasheCircle v13 at 0x2d48a3e2dd85f8b25acec5c4338790fd83beaf96 on Arc Testnet
+// Contract: AdasheCircle v13 at 0xbb1f1e47900a966a12250c1dc0c9fe325f1caebf on Arc Mainnet
 import rawMetadata from '../../contracts/contract-metadata/AdasheCircle.json'
 
 export const CONTRACT_ADDRESS: Address =
   (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as Address) ??
-  '0x507162ce32cc169185df376ebf9a5aaf4f9fb03d'
+  '0xbb1f1e47900a966a12250c1dc0c9fe325f1caebf'
 
 // Extract ABI from the metadata file
 export const CONTRACT_ABI = rawMetadata.abi as Abi
@@ -64,11 +64,11 @@ export function frequencyLabel(f: number): string {
   return FREQUENCY_LABELS[f as Frequency] ?? 'Unknown'
 }
 
-// Explorer URL helper — switches between testnet and mainnet based on NEXT_PUBLIC_NETWORK
+// Explorer URL helper — mainnet by default; falls back to testnet when NEXT_PUBLIC_NETWORK=testnet
 const explorerBase =
-  process.env.NEXT_PUBLIC_NETWORK === 'mainnet'
-    ? 'https://explorer.arc.io'
-    : 'https://explorer.testnet.arc.io'
+  process.env.NEXT_PUBLIC_NETWORK === 'testnet'
+    ? 'https://explorer.testnet.arc.io'
+    : 'https://explorer.arc.io'
 
 export const explorerTx = (hash: string) => `${explorerBase}/tx/${hash}`
 export const explorerAddress = (addr: string) => `${explorerBase}/address/${addr}`

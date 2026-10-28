@@ -59,10 +59,9 @@ export const arcMainnet = defineChain({
 
 // ---------------------------------------------------------------------------
 // Network selector — controlled by NEXT_PUBLIC_NETWORK env var
-// Set NEXT_PUBLIC_NETWORK=mainnet in Vercel to switch to production
-// Defaults to testnet for safety
+// Defaults to mainnet. Set NEXT_PUBLIC_NETWORK=testnet to use Arc Testnet.
 // ---------------------------------------------------------------------------
-const isMainnet = process.env.NEXT_PUBLIC_NETWORK === 'mainnet'
+const isMainnet = process.env.NEXT_PUBLIC_NETWORK !== 'testnet'
 export const activeChain = isMainnet ? arcMainnet : arcTestnet
 
 export const wagmiConfig = createConfig(

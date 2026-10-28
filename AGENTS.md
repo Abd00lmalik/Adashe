@@ -4,7 +4,8 @@
 
 | Contract | Chain | Address | Tx Hash | Explorer |
 |---|---|---|---|---|
-| AdasheCircle v12 (current) | Arc Testnet | `0x2d48a3e2dd85f8b25acec5c4338790fd83beaf96` | `0x82930875b1c466ce560d62dffd87cb575d0d7f629d171013f7b1586764fb82b9` | [View](https://explorer.testnet.arc.io/address/0x2d48a3e2dd85f8b25acec5c4338790fd83beaf96) |
+| AdasheCircle v13 (MAINNET — current) | Arc Mainnet | `0xbb1f1e47900a966a12250c1dc0c9fe325f1caebf` | user-deployed | [View](https://explorer.arc.io/address/0xbb1f1e47900a966a12250c1dc0c9fe325f1caebf) |
+| AdasheCircle v13 (testnet) | Arc Testnet | `0x2d48a3e2dd85f8b25acec5c4338790fd83beaf96` | `0x5bc42dbe38345f70fd55952314929d0f4b3472e1ecaa216fffa4d784e2d40765` | [View](https://explorer.testnet.arc.io/address/0x2d48a3e2dd85f8b25acec5c4338790fd83beaf96) |
 | AdasheCircle v10 (stale) | Arc Testnet | `0x2891663ecf025c98f2a3128106f48691f86c5910` | `0x9624a7cbaa8a2fd2ff0b6941efa5bbcb440c0cc8a0fb01eb2f46610d2a11b447` | [View](https://explorer.testnet.arc.io/address/0x2891663ecf025c98f2a3128106f48691f86c5910) |
 | AdasheCircle v7 (superseded) | Arc Testnet | `0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef` | `0x58511777f4d303f5418ea3dc7fb5d8058a71cf57de63e69678365051106606ad` | [View](https://explorer.testnet.arc.io/address/0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef) |
 | AdasheCircle v6 (superseded) | Arc Testnet | `0xd98f33d01cf491526d2acdb5d34ddbae49248d54` | `0x3a96b0c9132a76a137952e39c78298079836eb17082f0b7b446fc21c7579c41a` | [View](https://explorer.testnet.arc.io/address/0xd98f33d01cf491526d2acdb5d34ddbae49248d54) |
@@ -15,10 +16,14 @@
 
 ## Network Configuration
 
-- **Chain:** Arc Testnet (Chain ID: 5042002)
-- **USDC:** `0x3600000000000000000000000000000000000000` (6 decimals, ERC-20 view)
-- **RPC:** `https://rpc.testnet.arc.io`
-- **Explorer:** `https://explorer.testnet.arc.io`
+- **Chain (production):** Arc Mainnet (Chain ID: 1514)
+- **RPC (mainnet):** `https://rpc.mainnet.arc.io`
+- **Explorer (mainnet):** `https://explorer.arc.io`
+- **USDC (mainnet):** set via `NEXT_PUBLIC_USDC_ADDRESS` — verify from Arc docs before use
+- **Chain (testnet/dev):** Arc Testnet (Chain ID: 5042002) — activate with `NEXT_PUBLIC_NETWORK=testnet`
+- **USDC (testnet):** `0x3600000000000000000000000000000000000000` (6 decimals, ERC-20 view)
+- **RPC (testnet):** `https://rpc.testnet.arc.io`
+- **Explorer (testnet):** `https://explorer.testnet.arc.io`
 - **v7 Deployed:** 2026-10-20T08:10:05Z (contract ID: 01a1585c-388c-70a8-9423-11667fbc5090) — new address `0x369bb6da1ef5d1d78e989336e57b1e1d53a482ef`; added auto-join creator in createCircle() when creator address is in payoutOrder; 57/57 Foundry tests pass
 - **v6 Deployed:** 2026-10-20T06:13:38Z — same address as v5; redeployed to include corrected ABI (getPayoutOrder, getPeriod, startCircle, joinCircle were missing)
 - **v5 Deployed:** 2026-10-19T21:23:40Z (superseded — ABI was stale, do not use)

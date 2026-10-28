@@ -165,23 +165,23 @@ export default function LandingPage() {
           <div className="flex items-center gap-2">
             <Image src="/logo.svg" alt="Adashe logo" width={24} height={24} className="rounded" />
             <span className="font-medium text-forest-500">Adashe</span>
-            <span>rotating savings on Arc Testnet</span>
+            <span>rotating savings on Arc</span>
           </div>
           <div className="flex items-center gap-4">
             <a
-              href="https://explorer.testnet.arc.io/address/0xd98f33d01cf491526d2acdb5d34ddbae49248d54"
+              href="https://explorer.arc.io/address/0xbb1f1e47900a966a12250c1dc0c9fe325f1caebf"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-terra-400 transition-colors"
             >
               Contract
             </a>
-            <span>v5 testnet</span>
+            <span>v13</span>
           </div>
         </div>
         <div className="mx-auto max-w-5xl mt-4 text-xs text-muted/70">
-          Adashe is a testnet demonstration. It is not a financial product, investment vehicle, or bank.
-          All transactions are on Arc Testnet and involve no real funds.
+          Adashe is a savings tool, not a financial product, investment vehicle, or bank.
+          Transactions use real USDC on Arc and are irreversible.
           On-chain activity is publicly visible. Wallet addresses and transaction data are not private.
         </div>
       </footer>
