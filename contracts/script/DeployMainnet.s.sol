@@ -31,21 +31,22 @@ import "../AdasheCircle.sol";
  *   NEXT_PUBLIC_CONTRACT_ADDRESS in Vercel production environment variables.
  */
 contract DeployMainnet is Script {
-    // Arc Mainnet USDC address.
-    // IMPORTANT: Verify this address at https://docs.arc.io before deploying.
-    // Do not use the testnet address (0x3600000000000000000000000000000000000000) on mainnet.
-    address constant USDC_MAINNET = address(0); // <-- REPLACE WITH VERIFIED ARC MAINNET USDC ADDRESS
+    // Arc Mainnet USDC — the ERC-20 interface for Arc's native USDC asset.
+    // This address is the same on Arc Mainnet (5042) and Arc Testnet (5042002) by design.
+    // Verified at: https://docs.arc.io/arc/references/contract-addresses
+    address constant USDC_MAINNET = 0x3600000000000000000000000000000000000000;
 
+    // The v13 contract is already deployed at this address by the project owner.
+    // This script is retained for future redeployments only.
+    // Current mainnet address: 0xbb1f1e47900a966a12250c1dc0c9fe325f1caebf
     function run() external {
-        require(USDC_MAINNET != address(0), "Set USDC_MAINNET to the verified Arc mainnet USDC address");
-
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
 
         console.log("Deployer:", deployer);
         console.log("USDC:", USDC_MAINNET);
         console.log("Chain ID:", block.chainid);
-        require(block.chainid == 1514, "Wrong chain: must be Arc Mainnet (1514)");
+        require(block.chainid == 5042, "Wrong chain: must be Arc Mainnet (5042)");
 
         vm.startBroadcast(deployerKey);
         AdasheCircle circle = new AdasheCircle(USDC_MAINNET);

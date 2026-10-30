@@ -30,7 +30,7 @@ export function Hero() {
         <div className="max-w-xl">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white/90 mb-5 backdrop-blur-sm">
             <ShieldCheck className="h-3.5 w-3.5 text-terra-300 shrink-0" />
-            Smart contract enforced savings on Arc Testnet
+            Smart contract enforced savings on Arc
           </span>
 
           <h1 className="font-display font-bold text-white text-3xl sm:text-5xl lg:text-6xl leading-tight tracking-tighter text-balance mb-5">
@@ -74,7 +74,7 @@ export function Hero() {
           </div>
 
           <p className="text-xs text-white/50 mt-5">
-            Testnet only. No real funds involved. Transactions are visible on the Arc Testnet explorer.
+            Transactions use real USDC on Arc and are irreversible. On-chain activity is publicly visible.
           </p>
         </div>
       </div>

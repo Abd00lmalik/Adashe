@@ -16,13 +16,14 @@ Complete every step in order. Do not skip the audit or the dry-run.
 
 ---
 
-## Step 1 — Get the Arc Mainnet USDC address
+## Step 1 — Arc Mainnet USDC address (already known)
 
-1. Go to https://docs.arc.io and find the official USDC contract address on Arc Mainnet.
-2. Also check https://developers.circle.com/stablecoins/usdc-on-arc to cross-verify.
-3. Write it down. You will need it as a constructor argument.
+The USDC ERC-20 address on Arc Mainnet is **`0x3600000000000000000000000000000000000000`** —
+the same as on Arc Testnet. This is by design: it is the native ERC-20 interface for Arc's
+native USDC asset, deployed at the same address on both networks.
+Source: https://docs.arc.io/arc/references/contract-addresses
 
-> Do not use the testnet address `0x3600000000000000000000000000000000000000` on mainnet.
+> The contract is already deployed. Skip to Step 5 if you only need to configure Vercel and the database.
 
 ---
 
@@ -51,7 +52,7 @@ forge script contracts/script/DeployMainnet.s.sol \
 ```
 
 Verify the output:
-- Chain ID shown is `1514`
+- Chain ID shown is `5042`
 - Deployer address is your wallet
 - USDC address matches what you verified in Step 1
 - No errors or reverts
@@ -99,10 +100,10 @@ Set each of the following for the **Production** environment:
 | Variable | Value |
 |----------|-------|
 | `NEXT_PUBLIC_NETWORK` | `mainnet` |
-| `NEXT_PUBLIC_CHAIN_ID` | `1514` |
+| `NEXT_PUBLIC_CHAIN_ID` | `5042` |
 | `NEXT_PUBLIC_ARC_MAINNET_RPC_URL` | `https://rpc.mainnet.arc.io` |
-| `NEXT_PUBLIC_CONTRACT_ADDRESS` | Address from Step 4 |
-| `NEXT_PUBLIC_USDC_ADDRESS` | Arc mainnet USDC address from Step 1 |
+| `NEXT_PUBLIC_CONTRACT_ADDRESS` | `0xbb1f1e47900a966a12250c1dc0c9fe325f1caebf` |
+| `NEXT_PUBLIC_USDC_ADDRESS` | `0x3600000000000000000000000000000000000000` |
 | `NEXT_PUBLIC_APP_URL` | `https://adasheonchain.vercel.app` (or your custom domain) |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Your WalletConnect project ID |
 | `DATABASE_URL` | Prisma URL from Step 5 |

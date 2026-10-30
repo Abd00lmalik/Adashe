@@ -1,7 +1,11 @@
 import type { Address } from 'viem'
 import { formatUnits, parseUnits } from 'viem'
 
-// USDC ERC-20 on Arc (same address on mainnet and testnet)
+// USDC ERC-20 on Arc.
+// The address 0x3600000000000000000000000000000000000000 is the same on both
+// Arc Mainnet (chain 5042) and Arc Testnet (chain 5042002) — this is by design;
+// it is the native ERC-20 interface for Arc's native USDC asset.
+// Source: https://docs.arc.io/arc/references/contract-addresses
 export const USDC_ADDRESS: Address =
   (process.env.NEXT_PUBLIC_USDC_ADDRESS as Address) ??
   '0x3600000000000000000000000000000000000000'

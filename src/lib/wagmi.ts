@@ -30,13 +30,13 @@ export const arcTestnet = defineChain({
 })
 
 // ---------------------------------------------------------------------------
-// Arc Mainnet — chain ID 1514 (set NEXT_PUBLIC_NETWORK=mainnet to activate)
+// Arc Mainnet — chain ID 5042 (source: docs.arc.io/integrate/infrastructure)
 // RPC: https://rpc.mainnet.arc.io
 // Explorer: https://explorer.arc.io
-// USDC: set NEXT_PUBLIC_USDC_ADDRESS to the verified Arc mainnet USDC address
+// USDC: 0x3600000000000000000000000000000000000000 (same address as testnet)
 // ---------------------------------------------------------------------------
 export const arcMainnet = defineChain({
-  id: 1514,
+  id: 5042,
   name: 'Arc',
   nativeCurrency: {
     name: 'USDC',

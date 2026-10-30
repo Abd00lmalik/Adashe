@@ -16,10 +16,10 @@
 
 ## Network Configuration
 
-- **Chain (production):** Arc Mainnet (Chain ID: 1514)
+- **Chain (production):** Arc Mainnet (Chain ID: 5042)
 - **RPC (mainnet):** `https://rpc.mainnet.arc.io`
 - **Explorer (mainnet):** `https://explorer.arc.io`
-- **USDC (mainnet):** set via `NEXT_PUBLIC_USDC_ADDRESS` — verify from Arc docs before use
+- **USDC (mainnet):** `0x3600000000000000000000000000000000000000` — same address as testnet by design (Arc native ERC-20 interface). Source: https://docs.arc.io/arc/references/contract-addresses
 - **Chain (testnet/dev):** Arc Testnet (Chain ID: 5042002) — activate with `NEXT_PUBLIC_NETWORK=testnet`
 - **USDC (testnet):** `0x3600000000000000000000000000000000000000` (6 decimals, ERC-20 view)
 - **RPC (testnet):** `https://rpc.testnet.arc.io`
