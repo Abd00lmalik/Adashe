@@ -9,6 +9,7 @@ import { Navbar } from '@/components/layout/Navbar'
 import { Hero } from '@/components/landing/Hero'
 import { HowItWorks } from '@/components/landing/HowItWorks'
 import { SampleCircle } from '@/components/landing/SampleCircle'
+import { FAQ } from '@/components/landing/FAQ'
 import { ScrollReveal } from '@/components/ui/ScrollReveal'
 
 const benefits = [
@@ -121,6 +122,8 @@ export default function LandingPage() {
             </ScrollReveal>
           </div>
         </section>
+
+        <FAQ />
 
         {/* Closing CTA */}
         <section className="py-20 px-4 sm:px-6">
